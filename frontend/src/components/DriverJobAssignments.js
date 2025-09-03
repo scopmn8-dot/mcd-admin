@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useEffect, useState } from 'react';
 import {
   Box,
@@ -30,9 +31,9 @@ export default function DriverJobAssignments() {
       
       // Fetch all jobs data
       const [motorwayRes, atmovesRes, privateRes] = await Promise.all([
-        fetch('http://localhost:3001/api/motorway'),
-        fetch('http://localhost:3001/api/atmoves'),
-        fetch('http://localhost:3001/api/private-customers')
+  apiFetch('/api/motorway'),
+  apiFetch('/api/atmoves'),
+  apiFetch('/api/private-customers')
       ]);
 
       if (!motorwayRes.ok || !atmovesRes.ok || !privateRes.ok) {

@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useEffect, useState } from "react";
 import SheetTable from "../components/SheetTable";
 import InitializeDriverSequencesButton from "../components/InitializeDriverSequencesButton";
@@ -237,7 +238,7 @@ export default function Drivers() {
     setLoading(true);
     setError(null);
     try {
-  const res = await fetch("http://localhost:3001/api/drivers");
+  const res = await apiFetch('/api/drivers');
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Failed to fetch drivers");
@@ -262,7 +263,7 @@ export default function Drivers() {
     setBusy(true);
     setMsg("");
     try {
-  const res = await fetch("http://localhost:3001/api/auto-cluster-assign", { method: "POST" });
+  const res = await apiFetch('/api/auto-cluster-assign', { method: 'POST' });
       const contentType = res.headers.get("content-type");
       if (!res.ok) {
         if (contentType && contentType.includes("application/json")) {
@@ -285,7 +286,7 @@ export default function Drivers() {
     setAssigningDrivers(true);
     setAssignDriversMsg("");
     try {
-  const res = await fetch("http://localhost:3001/api/assign-drivers-to-all", { method: "POST" });
+  const res = await apiFetch('/api/assign-drivers-to-all', { method: 'POST' });
       const contentType = res.headers.get("content-type");
       if (!res.ok) {
         if (contentType && contentType.includes("application/json")) {
@@ -309,7 +310,7 @@ export default function Drivers() {
     setRedistributing(true);
     setRedistributeMsg("");
     try {
-  const res = await fetch("http://localhost:3001/api/redistribute-jobs", { method: "POST" });
+  const res = await apiFetch('/api/redistribute-jobs', { method: 'POST' });
       const contentType = res.headers.get("content-type");
       if (!res.ok) {
         if (contentType && contentType.includes("application/json")) {

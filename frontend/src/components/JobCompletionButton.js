@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch } from '../api';
 import {
   Button,
   Dialog,
@@ -45,7 +46,7 @@ export default function JobCompletionButton() {
     setError('');
 
     try {
-  const response = await fetch('http://localhost:3001/api/jobs/complete', {
+  const response = await apiFetch('/api/jobs/complete', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

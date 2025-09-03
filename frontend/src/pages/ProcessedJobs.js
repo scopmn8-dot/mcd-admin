@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useEffect, useState } from 'react';
 import SheetMonitorButton from '../components/SheetMonitorButton';
 import { Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody, CircularProgress, Button } from '@mui/material';
@@ -11,7 +12,7 @@ export default function ProcessedJobsPage() {
   const fetchProcessed = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/processed-jobs');
+  const res = await apiFetch('/api/processed-jobs');
       if (res.ok) {
         const j = await res.json();
         if (j.success) {

@@ -105,6 +105,7 @@ Files in this package:
 • Backend server (index.js)
 • Frontend build (public/ folder)
 • Security config (.htaccess)
+• 503.shtml (custom maintenance/error page)
 • Dependencies list (package.json)
 • Environment template (.env.cpanel)
 
@@ -117,3 +118,11 @@ Your MCD ADMIN system features:
 ✅ Job Processing Dashboard
 
 Good luck with your deployment! 🎉
+
+Note about 503.shtml and ErrorDocument
+--------------------------------------
+• The included 503.shtml is referenced in .htaccess with:
+   ErrorDocument 503 /mcd-admin/503.shtml
+• Make sure the app lives under public_html/mcd-admin so Apache can find this file.
+• If your path differs, edit .htaccess to point ErrorDocument to your folder.
+• This prevents cPanel from logging "File not found [/home/.../public_html/503.shtml]" when the app returns 503 during startup or maintenance.

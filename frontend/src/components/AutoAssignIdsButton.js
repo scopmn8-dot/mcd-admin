@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useState } from "react";
 import Button from "@mui/material/Button";
 import Alert from "@mui/material/Alert";
@@ -12,7 +13,7 @@ export default function AutoAssignIdsButton() {
     setSuccess("");
     setError("");
     try {
-  const res = await fetch("http://localhost:3001/api/jobs/auto-assign-ids", {
+  const res = await apiFetch('/api/jobs/auto-assign-ids', {
         method: "POST"
       });
       if (res.ok) {

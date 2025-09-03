@@ -1,6 +1,28 @@
 # GitHub Actions Auto-Deployment Setup
 
 ## 🚀 Quick Setup Guide
+## Cloud Run (Backend) + GitHub Pages (Frontend)
+
+Configure these in your GitHub repo under Settings → Secrets and variables → Actions:
+
+Required Secrets (Backend):
+- GCP_PROJECT_ID: your GCP project id
+- GCP_REGION: e.g. us-central1
+- GCP_SA_KEY: JSON key for a service account with roles: Artifact Registry Writer, Cloud Run Admin, Service Account User
+- JWT_SECRET: secure random string
+- GOOGLE_CLIENT_EMAIL: service account email for Google Sheets
+- GOOGLE_PRIVATE_KEY: private key; paste with literal \n newlines
+
+Optional Variables (Actions → Variables):
+- CORS_ORIGIN: https://yourdomain.com,https://www.yourdomain.com
+- API_BASE_URL: The Cloud Run URL (e.g., https://mcd-admin-backend-xxxx-uc.a.run.app)
+- CLOUD_RUN_SERVICE: override service name (default mcd-admin-backend)
+- GAR_IMAGE: image name (default backend)
+
+Deploy flows:
+- Push to main touching backend/ ⇒ Cloud Run build and deploy
+- Push to main touching frontend/ ⇒ GitHub Pages build and deploy
+
 
 ### 1. Repository Setup
 Your repository is already configured! The workflow file has been created at:

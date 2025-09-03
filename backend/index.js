@@ -292,7 +292,8 @@ app.get('/api/process-logs', (req, res) => {
     eta: processEta
   });
 });
-const PORT = 3001;
+// Respect platform-provided PORT (e.g., Cloud Run) with fallback
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -303,7 +304,18 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.use(cors());
+// Configure CORS: allow comma-separated origins via CORS_ORIGIN env, defaults to '*'
+const rawCors = process.env.CORS_ORIGIN || '*';
+const allowedOrigins = rawCors.split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow non-browser or same-origin requests
+    if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  }
+}));
 app.use(express.json());
 
 // Simple file-backed user store and auth endpoints (no DB)
@@ -393,8 +405,18 @@ function authMiddleware(req, res, next) {
 
 
 // Google Sheets setup
+// Google credentials: prefer env vars, fallback to bundled file
 const CREDENTIALS_PATH = path.join(__dirname, 'google-credentials.json');
-const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+let credentials;
+if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+  credentials = {
+    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+    // Support newline-escaped secrets
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
+  };
+} else {
+  credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+}
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 const auth = new google.auth.GoogleAuth({
   credentials,

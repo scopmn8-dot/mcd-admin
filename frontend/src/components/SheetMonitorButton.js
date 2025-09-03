@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useState, useEffect } from 'react';
 import { Button, Alert, CircularProgress, Typography, Box, LinearProgress, Chip } from '@mui/material';
 
@@ -12,7 +13,7 @@ export default function AutomaticMonitoringDashboard() {
   // Fetch monitoring status from server
   const fetchMonitoringStatus = async () => {
     try {
-  const response = await fetch('http://localhost:3001/api/jobs/monitoring-status');
+  const response = await apiFetch('/api/jobs/monitoring-status');
       if (response.ok) {
         const data = await response.json();
         setMonitoringStatus(data);
@@ -26,7 +27,7 @@ export default function AutomaticMonitoringDashboard() {
 
   const fetchSheetUrl = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/spreadsheet-url');
+  const res = await apiFetch('/api/spreadsheet-url');
       if (res.ok) {
         const j = await res.json();
         setSheetUrl(j.url || '');
@@ -53,7 +54,7 @@ export default function AutomaticMonitoringDashboard() {
     setError('');
 
     try {
-  const response = await fetch('http://localhost:3001/api/jobs/monitor-sheet-changes', {
+  const response = await apiFetch('/api/jobs/monitor-sheet-changes', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

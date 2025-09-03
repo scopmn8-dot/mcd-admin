@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useEffect, useState } from "react";
 import {
   Box,
@@ -238,7 +239,7 @@ export default function Clustering() {
   const fetchSuggestions = () => {
     setLoading(true);
     setError("");
-  fetch("http://localhost:3001/api/clusters/suggest")
+    apiFetch('/api/clusters/suggest')
       .then(res => res.ok ? res.json() : res.json().then(e => { throw new Error(e.error || 'Error'); }))
       .then(setSuggestions)
       .catch(e => setError(e.message))
@@ -248,7 +249,7 @@ export default function Clustering() {
   // Fetch logs from backend
   const fetchLogs = async () => {
     try {
-  const res = await fetch("http://localhost:3001/api/process-logs");
+    const res = await apiFetch('/api/process-logs');
       if (res.ok) {
         const data = await res.json();
         setLogs(data.logs || []);
@@ -280,7 +281,7 @@ export default function Clustering() {
         forwardReturnFlag: i === 0 ? "Forward" : "Return"
       }));
       
-  const res = await fetch("http://localhost:3001/api/clusters/approve", {
+    const res = await apiFetch('/api/clusters/approve', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobs, clusterId })

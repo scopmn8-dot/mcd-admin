@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useState } from 'react';
 import {
   Button,
@@ -48,7 +49,7 @@ export default function DriverQueueViewer() {
     setError('');
 
     try {
-  const response = await fetch(`http://localhost:3001/api/drivers/${encodeURIComponent(driverName.trim())}/queue`);
+  const response = await apiFetch(`/api/drivers/${encodeURIComponent(driverName.trim())}/queue`);
       
       if (response.ok) {
         const data = await response.json();

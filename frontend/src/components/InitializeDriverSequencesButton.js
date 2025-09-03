@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useState } from 'react';
 import { Button, Alert, CircularProgress } from '@mui/material';
 
@@ -12,7 +13,7 @@ export default function InitializeDriverSequencesButton() {
     setError('');
 
     try {
-  const response = await fetch('http://localhost:3001/api/jobs/initialize-driver-sequences', {
+  const response = await apiFetch('/api/jobs/initialize-driver-sequences', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

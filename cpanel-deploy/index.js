@@ -292,7 +292,7 @@ app.get('/api/process-logs', (req, res) => {
     eta: processEta
   });
 });
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useState } from 'react';
 
 export default function Login({ onLogin }) {
@@ -11,7 +12,7 @@ export default function Login({ onLogin }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('http://localhost:3001/api/auth/login', {
+  const res = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })

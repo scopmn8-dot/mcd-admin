@@ -1,3 +1,4 @@
+import { apiFetch } from './api';
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import Dashboard from "./pages/Dashboard";
 import Clustering from "./pages/Clustering";
@@ -293,7 +294,7 @@ function App() {
       if (token && user) {
         try {
           // Verify token with backend
-          const response = await fetch('http://localhost:3001/api/auth/verify', {
+          const response = await apiFetch('/api/auth/verify', {
             headers: { 'Authorization': `Bearer ${token}` }
           });
           
@@ -431,7 +432,7 @@ function App() {
   setAutoRunSteps({ clustering: 'running', assignDrivers: 'pending', assignIds: 'pending', enforceSequencing: 'pending' });
     try {
       // 1) Auto cluster & assign
-      const clusterRes = await fetch('http://localhost:3001/api/auto-cluster-assign', { method: 'POST' });
+  const clusterRes = await apiFetch('/api/auto-cluster-assign', { method: 'POST' });
       if (!clusterRes.ok) {
         const t = await clusterRes.text();
         setAutoRunSteps(prev => ({ ...prev, clustering: 'error' }));
@@ -440,7 +441,7 @@ function App() {
       setAutoRunSteps(prev => ({ ...prev, clustering: 'success', assignDrivers: 'running' }));
 
       // 2) Assign drivers with sequencing
-      const assignRes = await fetch('http://localhost:3001/api/assign-jobs-with-sequencing', { method: 'POST' });
+  const assignRes = await apiFetch('/api/assign-jobs-with-sequencing', { method: 'POST' });
       if (!assignRes.ok) {
         const t = await assignRes.text();
         setAutoRunSteps(prev => ({ ...prev, assignDrivers: 'error' }));
@@ -449,7 +450,7 @@ function App() {
       setAutoRunSteps(prev => ({ ...prev, assignDrivers: 'success', assignIds: 'running' }));
 
       // 3) Auto-assign ids (job/cluster/order numbers)
-      const idsRes = await fetch('http://localhost:3001/api/jobs/auto-assign-ids', { method: 'POST' });
+  const idsRes = await apiFetch('/api/jobs/auto-assign-ids', { method: 'POST' });
       if (!idsRes.ok) {
         const t = await idsRes.text();
         setAutoRunSteps(prev => ({ ...prev, assignIds: 'error' }));
@@ -458,7 +459,7 @@ function App() {
       setAutoRunSteps(prev => ({ ...prev, assignIds: 'success', enforceSequencing: 'running' }));
 
       // 4) Enforce sequencing to ensure one active job per driver
-      const enforceRes = await fetch('http://localhost:3001/api/jobs/enforce-sequencing', { method: 'POST' });
+  const enforceRes = await apiFetch('/api/jobs/enforce-sequencing', { method: 'POST' });
       if (!enforceRes.ok) {
         const t = await enforceRes.text();
         setAutoRunSteps(prev => ({ ...prev, enforceSequencing: 'error' }));

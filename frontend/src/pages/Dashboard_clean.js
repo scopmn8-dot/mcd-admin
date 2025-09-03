@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useEffect, useState } from "react";
 import SheetTable from "../components/SheetTable";
 import {
@@ -197,9 +198,9 @@ export default function Dashboard() {
     setProgress(10);
     
     const sheets = [
-  { url: "http://localhost:3001/api/motorway", setter: setMotorway, key: "motorway" },
-  { url: "http://localhost:3001/api/atmoves", setter: setAtmoves, key: "atmoves" },
-  { url: "http://localhost:3001/api/private-customers", setter: setPrivateCustomers, key: "privateCustomers" },
+  { url: "/api/motorway", setter: setMotorway, key: "motorway" },
+  { url: "/api/atmoves", setter: setAtmoves, key: "atmoves" },
+  { url: "/api/private-customers", setter: setPrivateCustomers, key: "privateCustomers" },
     ];
 
     let completed = 0;
@@ -254,7 +255,7 @@ export default function Dashboard() {
     const sheetKey = sheetTabs[activeTab]?.key;
     if (!sheetKey || sheetKey === 'driverAssignments') return;
     
-  await fetch(`http://localhost:3001/api/${sheetKey}/add`, {
+  await apiFetch(`/api/${sheetKey}/add`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ row })
@@ -266,7 +267,7 @@ export default function Dashboard() {
     setAutoAssigning(true);
     setAutoAssignMsg("");
     try {
-  const res = await fetch("http://localhost:3001/api/auto-cluster-assign", { method: "POST" });
+  const res = await apiFetch('/api/auto-cluster-assign', { method: 'POST' });
       const contentType = res.headers.get("content-type");
       if (!res.ok) {
         if (contentType && contentType.includes("application/json")) {
@@ -290,7 +291,7 @@ export default function Dashboard() {
     setAssigningDrivers(true);
     setAssignDriversMsg("");
     try {
-  const res = await fetch("http://localhost:3001/api/assign-jobs-with-sequencing", { method: "POST" });
+  const res = await apiFetch('/api/assign-jobs-with-sequencing', { method: 'POST' });
       const contentType = res.headers.get("content-type");
       if (!res.ok) {
         if (contentType && contentType.includes("application/json")) {

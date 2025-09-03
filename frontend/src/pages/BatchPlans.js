@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   Box, Paper, Typography, Button, TextField, Grid,
@@ -20,13 +21,13 @@ export default function BatchPlans() {
   const [filterText, setFilterText] = useState('');
 
   async function loadBatches() {
-    const res = await fetch(`http://localhost:3001/api/batch-plans?limit=${limit}`);
+  const res = await apiFetch(`/api/batch-plans?limit=${limit}`);
     const json = await res.json();
     if (json && json.batches) setBatches(json.batches);
   }
 
   async function loadBatch(batchId) {
-    const res = await fetch(`http://localhost:3001/api/batch-plans/${batchId}`);
+  const res = await apiFetch(`/api/batch-plans/${batchId}`);
     const json = await res.json();
     if (json && json.jobs) {
       setSelectedBatch(batchId);
@@ -36,7 +37,7 @@ export default function BatchPlans() {
 
   async function loadSuggestedClusters() {
     try {
-      const res = await fetch('http://localhost:3001/api/clusters/suggest');
+  const res = await apiFetch('/api/clusters/suggest');
       const json = await res.json();
       if (Array.isArray(json)) {
         setSuggestedClusters(json.map((c, idx) => ({ clusterId: c.clusterId || `SUG-${idx+1}`, jobs: c.jobs || [], score: c.score || 0 })));
@@ -50,7 +51,7 @@ export default function BatchPlans() {
     if (clusterArray.length > 0) payload.clusterIds = clusterArray;
     else if (clusterIds.trim()) payload.clusterIds = clusterIds.split(',').map(s => s.trim()).filter(Boolean);
     if (jobIds.trim()) payload.jobIds = jobIds.split(',').map(s => s.trim()).filter(Boolean);
-    const res = await fetch('http://localhost:3001/api/batch-plans/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const res = await apiFetch('/api/batch-plans/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const json = await res.json();
     if (json && json.success) {
       await loadBatches();

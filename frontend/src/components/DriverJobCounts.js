@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -45,7 +46,7 @@ export default function DriverJobCounts() {
       setLoading(true);
       setError('');
       
-  const response = await fetch('http://localhost:3001/api/driver-job-counts');
+  const response = await apiFetch('/api/driver-job-counts');
       if (!response.ok) {
         throw new Error('Failed to fetch job counts');
       }
@@ -69,7 +70,7 @@ export default function DriverJobCounts() {
       setError('');
       setSuccess('');
       
-  const response = await fetch('http://localhost:3001/api/update-driver-job-counts', {
+  const response = await apiFetch('/api/update-driver-job-counts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
