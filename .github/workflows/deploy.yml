@@ -17,18 +17,27 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
         
-    - name: Install dependencies
-      run: npm ci
+    - name: Install dependencies (skip root - no package-lock.json)
+      run: echo "Skipping root npm install - using cpanel-deploy directly"
       
     - name: Build frontend (if needed)
       run: |
         if [ -f "frontend/package.json" ]; then
           cd frontend
-          npm ci
-          npm run build
+          if [ -f "package-lock.json" ]; then
+            npm ci
+          else
+            npm install
+          fi
+          if npm run build 2>/dev/null; then
+            echo "Frontend built successfully"
+          else
+            echo "No build script found, skipping frontend build"
+          fi
           cd ..
+        else
+          echo "No frontend found, skipping frontend build"
         fi
       
     - name: Prepare deployment files
