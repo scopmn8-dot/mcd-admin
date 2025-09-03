@@ -1,0 +1,21 @@
+{
+  "name": "mcd-admin",
+  "version": "1.0.0",
+  "description": "Miles Car Delivery Administration System",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "start": "cd backend && npm start",
+    "heroku-postbuild": "npm run build"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
+  },
+  "repository": {
+    "type": "git",
+    "url": "your-repository-url"
+  },
+  "keywords": ["logistics", "delivery", "admin", "dashboard"],
+  "author": "Miles Car Delivery",
+  "license": "ISC"
+}

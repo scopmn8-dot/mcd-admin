@@ -1,0 +1,75 @@
+name: Deploy to cPanel CloudLinux
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build frontend (if needed)
+      run: |
+        if [ -f "frontend/package.json" ]; then
+          cd frontend
+          npm ci
+          npm run build
+          cd ..
+        fi
+      
+    - name: Prepare deployment files
+      run: |
+        # Create deployment directory
+        mkdir -p deploy-temp
+        
+        # Copy cpanel-deploy contents
+        cp -r cpanel-deploy/* deploy-temp/
+        
+        # If frontend was built, update the public folder
+        if [ -d "frontend/build" ]; then
+          rm -rf deploy-temp/public
+          cp -r frontend/build deploy-temp/public
+        fi
+        
+        # Ensure no node_modules are included
+        find deploy-temp -name "node_modules" -type d -exec rm -rf {} + 2>/dev/null || true
+        
+    - name: Deploy to cPanel via FTP
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+      with:
+        server: ${{ secrets.FTP_HOST }}
+        username: ${{ secrets.FTP_USERNAME }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        local-dir: ./deploy-temp/
+        server-dir: /public_html/mcd-admin/
+        exclude: |
+          **/.git*
+          **/.git*/**
+          **/node_modules/**
+          **/.env
+          **/.DS_Store
+          **/Thumbs.db
+        
+    - name: Deployment complete
+      run: |
+        echo "🚀 Deployment completed!"
+        echo "Next steps:"
+        echo "1. Go to cPanel → NodeJS Selector"
+        echo "2. Create/restart your Node.js application"
+        echo "3. Run NPM Install through NodeJS Selector"
+        echo "4. Configure your .env file"
+        echo "5. Test at https://yourdomain.com/mcd-admin"

@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - JWT_SECRET=your-super-secure-jwt-secret-change-me
+    volumes:
+      - ./backend/google-credentials.json:/app/google-credentials.json:ro
+      - ./backend/users.json:/app/users.json
+      - ./backend/processed-jobs.json:/app/processed-jobs.json
+    restart: unless-stopped
+    networks:
+      - mcd-network
+
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - mcd-network
+
+networks:
+  mcd-network:
+    driver: bridge
+
+volumes:
+  mcd-data:
