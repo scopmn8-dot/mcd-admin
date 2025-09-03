@@ -3880,9 +3880,22 @@ app.post('/api/jobs/enforce-sequencing', async (req, res) => {
   }
 });
 
+// Serve static files from the public folder
+app.use(express.static(path.join(__dirname, 'public')));
+
 // Serve React frontend in production
 if (process.env.NODE_ENV === 'production') {
-  // Serve static files from the React build
+  // Handle React routing - send all non-API requests to React app (except /api routes)
+  app.get('*', (req, res) => {
+    // Skip API routes
+    if (req.path.startsWith('/api')) {
+      return res.status(404).json({ error: 'API endpoint not found' });
+    }
+    // Serve index.html for all other routes
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  });
+} else {
+  // Development: serve from different path
   app.use(express.static(path.join(__dirname, '../frontend/build')));
   
   // Handle React routing - send all non-API requests to React app
