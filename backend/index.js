@@ -306,6 +306,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Configure CORS: allow comma-separated origins via CORS_ORIGIN env, defaults to '*'
+// Updated to ensure GitHub Pages origin is properly configured
 const rawCors = process.env.CORS_ORIGIN || '*';
 const allowedOrigins = rawCors.split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({
@@ -318,6 +319,29 @@ app.use(cors({
   }
 }));
 app.use(express.json());
+
+// Root endpoint - API info
+app.get('/', (req, res) => {
+  res.json({
+    name: 'MCD Admin Backend API',
+    version: '1.0.3',
+    status: 'running',
+    endpoints: {
+      health: '/api/health',
+      auth: {
+        login: 'POST /api/auth/login',
+        register: 'POST /api/auth/register',
+        verify: 'GET /api/auth/verify'
+      },
+      data: {
+        motorway: 'GET /api/motorway',
+        atmoves: 'GET /api/atmoves',
+        privateCustomers: 'GET /api/private-customers'
+      }
+    },
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Simple file-backed user store and auth endpoints (no DB)
 import bcrypt from 'bcryptjs';
