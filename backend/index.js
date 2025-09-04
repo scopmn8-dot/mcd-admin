@@ -415,6 +415,191 @@ app.get('/api/auth/verify', authMiddleware, async (req, res) => {
   }
 });
 
+// User Management API Endpoints
+
+// Get all users (admin only)
+app.get('/api/users', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Check if user has admin privileges
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Remove password hashes from response
+    const safeUsers = users.map(user => {
+      const { passwordHash, ...safeUser } = user;
+      return safeUser;
+    });
+
+    res.json({ users: safeUsers });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get single user
+app.get('/api/users/:id', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Users can only access their own data unless they're admin
+    if (req.params.id !== req.user.id && (!currentUser || currentUser.role !== 'admin')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const user = users.find(u => u.id === req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { passwordHash, ...safeUser } = user;
+    res.json({ user: safeUser });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Create new user (admin only)
+app.post('/api/users', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Check if user has admin privileges
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { username, email, password, firstName, lastName, phone, company, role = 'user' } = req.body;
+    
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'Username, email, and password are required' });
+    }
+
+    // Check if username or email already exists
+    const existingUser = users.find(u => u.username === username || u.email === email);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username or email already exists' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const newUser = {
+      id: generateId(),
+      username,
+      email,
+      passwordHash,
+      firstName: firstName || '',
+      lastName: lastName || '',
+      phone: phone || '',
+      company: company || '',
+      role: role || 'user',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    users.push(newUser);
+    writeUsers(users);
+
+    const { passwordHash: _, ...safeUser } = newUser;
+    res.status(201).json({ user: safeUser, message: 'User created successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Update user (admin or self)
+app.put('/api/users/:id', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Users can only update their own data unless they're admin
+    if (req.params.id !== req.user.id && (!currentUser || currentUser.role !== 'admin')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const userIndex = users.findIndex(u => u.id === req.params.id);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { username, email, password, firstName, lastName, phone, company, role } = req.body;
+    
+    // Check if new username or email conflicts with existing users
+    if (username || email) {
+      const conflictingUser = users.find(u => 
+        u.id !== req.params.id && (u.username === username || u.email === email)
+      );
+      if (conflictingUser) {
+        return res.status(400).json({ error: 'Username or email already exists' });
+      }
+    }
+
+    // Update user data
+    const updatedUser = { ...users[userIndex] };
+    if (username) updatedUser.username = username;
+    if (email) updatedUser.email = email;
+    if (firstName !== undefined) updatedUser.firstName = firstName;
+    if (lastName !== undefined) updatedUser.lastName = lastName;
+    if (phone !== undefined) updatedUser.phone = phone;
+    if (company !== undefined) updatedUser.company = company;
+    
+    // Only admins can change roles
+    if (role && currentUser.role === 'admin') {
+      updatedUser.role = role;
+    }
+    
+    // Update password if provided
+    if (password && password.trim() !== '') {
+      updatedUser.passwordHash = await bcrypt.hash(password, 10);
+    }
+    
+    updatedUser.updatedAt = new Date().toISOString();
+
+    users[userIndex] = updatedUser;
+    writeUsers(users);
+
+    const { passwordHash: _, ...safeUser } = updatedUser;
+    res.json({ user: safeUser, message: 'User updated successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete user (admin only)
+app.delete('/api/users/:id', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Check if user has admin privileges
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Prevent self-deletion
+    if (req.params.id === req.user.id) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    const userIndex = users.findIndex(u => u.id === req.params.id);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    users.splice(userIndex, 1);
+    writeUsers(users);
+
+    res.json({ message: 'User deleted successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Middleware to protect routes
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;

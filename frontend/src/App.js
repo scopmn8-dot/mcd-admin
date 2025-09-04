@@ -5,6 +5,7 @@ import Clustering from "./pages/Clustering";
 import Drivers from "./pages/Drivers";
 import ProcessedJobs from "./pages/ProcessedJobs";
 import BatchPlans from "./pages/BatchPlans";
+import Users from "./pages/Users";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import './styles/modern.css';
@@ -50,6 +51,7 @@ import {
   PlayArrow as PlayArrowIcon,
   Close as CloseIcon,
   Person as PersonIcon,
+  People as PeopleIcon,
   AccountCircle as AccountCircleIcon,
   ExitToApp as LogoutIcon,
   NotificationsActive as NotificationsActiveIcon,
@@ -341,6 +343,7 @@ function App() {
     { label: 'Drivers', icon: <DriversIcon />, index: 2 },
     { label: 'Processed Jobs', icon: <PlayArrowIcon />, index: 3 },
     { label: 'Batch Plans', icon: <TrendingUpIcon />, index: 4 },
+    { label: 'Users', icon: <PeopleIcon />, index: 10 },
     ...(isAuthenticated 
       ? [{ label: 'Logout', icon: <LogoutIcon />, index: 7 }]
       : [
@@ -518,6 +521,7 @@ function App() {
       case 2: return <Drivers />;
       case 3: return <ProcessedJobs />;
       case 4: return <BatchPlans />;
+      case 10: return <Users />;
       case 7: // Logout
         handleLogout();
         return null;

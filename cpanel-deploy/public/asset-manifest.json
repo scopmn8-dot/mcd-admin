@@ -1,13 +1,13 @@
 {
   "files": {
-    "main.css": "./static/css/main.bc0b1eea.css",
-    "main.js": "./static/js/main.3145e017.js",
-    "index.html": "./index.html",
-    "main.bc0b1eea.css.map": "./static/css/main.bc0b1eea.css.map",
-    "main.3145e017.js.map": "./static/js/main.3145e017.js.map"
+    "main.css": "/mcd-admin/static/css/main.bc0b1eea.css",
+    "main.js": "/mcd-admin/static/js/main.8fde96b2.js",
+    "index.html": "/mcd-admin/index.html",
+    "main.bc0b1eea.css.map": "/mcd-admin/static/css/main.bc0b1eea.css.map",
+    "main.8fde96b2.js.map": "/mcd-admin/static/js/main.8fde96b2.js.map"
   },
   "entrypoints": [
     "static/css/main.bc0b1eea.css",
-    "static/js/main.3145e017.js"
+    "static/js/main.8fde96b2.js"
   ]
 }
