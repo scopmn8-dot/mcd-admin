@@ -38,7 +38,8 @@ import {
   Group as GroupIcon,
   Assessment as AssessmentIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon
+  ExpandLess as ExpandLessIcon,
+  DeleteSweep as DeleteSweepIcon
 } from "@mui/icons-material";
 import AddRowModal from "../components/AddRowModal";
 // JobCompletionButton removed — complete-job flow is handled automatically
@@ -294,6 +295,8 @@ export default function Dashboard() {
   const [autoAssignMsg, setAutoAssignMsg] = useState("");
   const [assigningDrivers, setAssigningDrivers] = useState(false);
   const [assignDriversMsg, setAssignDriversMsg] = useState("");
+  const [clearingJobs, setClearingJobs] = useState(false);
+  const [clearJobsMsg, setClearJobsMsg] = useState("");
   const [showActions, setShowActions] = useState(!isMobile);
 
   const fetchAll = () => {
@@ -424,6 +427,42 @@ export default function Dashboard() {
       setAssignDriversMsg(e.message);
     } finally {
       setAssigningDrivers(false);
+    }
+  };
+
+  const handleClearAllJobs = async () => {
+    if (!window.confirm('⚠️ WARNING: This will permanently delete ALL jobs from ALL sheets!\n\nThis action cannot be undone. Are you absolutely sure you want to continue?')) {
+      return;
+    }
+    
+    setClearingJobs(true);
+    setClearJobsMsg("");
+    try {
+      const token = localStorage.getItem('token');
+      const res = await apiFetch("/api/jobs/clear-all", { 
+        method: "POST",
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const contentType = res.headers.get("content-type");
+      if (!res.ok) {
+        if (contentType && contentType.includes("application/json")) {
+          const err = await res.json();
+          throw new Error(err.error || "Error clearing jobs");
+        } else {
+          const text = await res.text();
+          throw new Error(text);
+        }
+      }
+      const data = await res.json();
+      setClearJobsMsg(`Successfully cleared ${data.totalRowsCleared} jobs from ${data.sheetsCleared} sheets in ${data.timeSpent.toFixed(2)} seconds.`);
+      fetchAll(); // Refresh all data
+    } catch (e) {
+      setClearJobsMsg(`Error: ${e.message}`);
+    } finally {
+      setClearingJobs(false);
     }
   };
 
@@ -578,7 +617,7 @@ export default function Dashboard() {
           
           <Collapse in={showActions} timeout={400}>
             <Grid container spacing={3} columns={12}>
-              <Grid xs={12} lg={4}>
+              <Grid xs={12} lg={3}>
                 <ModernActionButton
                   title="Auto Cluster & Assign"
                   subtitle="Automatically cluster jobs and assign them to optimal routes"
@@ -589,7 +628,7 @@ export default function Dashboard() {
                   disabled={activeTab === 3}
                 />
               </Grid>
-              <Grid xs={12} lg={4}>
+              <Grid xs={12} lg={3}>
                 <ModernActionButton
                   title="Assign All Drivers"
                   subtitle="Distribute jobs to drivers with intelligent sequencing"
@@ -600,7 +639,7 @@ export default function Dashboard() {
                   disabled={activeTab === 3}
                 />
               </Grid>
-              <Grid xs={12} lg={4}>
+              <Grid xs={12} lg={3}>
                 <ModernActionButton
                   title="Add New Job"
                   subtitle="Create a new delivery job with all required details"
@@ -610,13 +649,24 @@ export default function Dashboard() {
                   disabled={activeTab === 3}
                 />
               </Grid>
+              <Grid xs={12} lg={3}>
+                <ModernActionButton
+                  title="Clear All Jobs"
+                  subtitle="⚠️ Permanently delete all job data from all sheets"
+                  icon={<DeleteSweepIcon />}
+                  color="#ef4444"
+                  loading={clearingJobs}
+                  onClick={handleClearAllJobs}
+                  disabled={activeTab === 3}
+                />
+              </Grid>
             </Grid>
           </Collapse>
         </CardContent>
       </Card>
 
       {/* Enhanced Alerts */}
-      {(autoAssignMsg || assignDriversMsg) && (
+      {(autoAssignMsg || assignDriversMsg || clearJobsMsg) && (
         <Box sx={{ mb: 3 }}>
           {autoAssignMsg && (
             <Alert 
@@ -649,6 +699,22 @@ export default function Dashboard() {
               onClose={() => setAssignDriversMsg("")}
             >
               {assignDriversMsg}
+            </Alert>
+          )}
+          {clearJobsMsg && (
+            <Alert 
+              severity={clearJobsMsg.includes("Successfully") ? "success" : "error"} 
+              sx={{ 
+                borderRadius: 3,
+                fontSize: '0.95rem',
+                fontWeight: 500,
+                '& .MuiAlert-icon': {
+                  fontSize: '1.5rem',
+                },
+              }}
+              onClose={() => setClearJobsMsg("")}
+            >
+              {clearJobsMsg}
             </Alert>
           )}
         </Box>

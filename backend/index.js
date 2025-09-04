@@ -488,7 +488,7 @@ app.post('/api/users', authMiddleware, async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const newUser = {
-      id: generateId(),
+      id: generateId('USR'),
       username,
       email,
       passwordHash,
@@ -2875,6 +2875,90 @@ setTimeout(() => {
   console.log('🚀 Running initial sheet monitoring check...');
   monitorSheetChanges();
 }, 5000);
+
+// API endpoint to clear all jobs data from all sheets
+app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Check if user has admin privileges
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    console.log('🗑️ Clearing all jobs data from all sheets...');
+    processStartTime = Date.now();
+    processEndTime = null;
+    processEta = null;
+
+    const sheetsToProcess = [
+      SHEETS.motorway.name,
+      SHEETS.atmoves.name, 
+      SHEETS.privateCustomers.name,
+      'Processed Jobs'
+    ];
+
+    let totalCleared = 0;
+
+    for (const sheetName of sheetsToProcess) {
+      try {
+        console.log(`Clearing sheet: ${sheetName}`);
+        
+        // Get current data to count rows
+        const dataRange = `${sheetName}!2:10000`; // Skip header row
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: dataRange,
+        });
+        
+        const currentData = response.data.values || [];
+        const rowCount = currentData.length;
+        
+        if (rowCount > 0) {
+          // Clear all data rows (keeping headers)
+          await sheets.spreadsheets.values.clear({
+            spreadsheetId: SHEET_ID,
+            range: dataRange,
+          });
+          
+          totalCleared += rowCount;
+          console.log(`✅ Cleared ${rowCount} rows from ${sheetName}`);
+        } else {
+          console.log(`📝 ${sheetName} was already empty`);
+        }
+        
+      } catch (error) {
+        console.error(`❌ Error clearing ${sheetName}:`, error.message);
+      }
+    }
+
+    // Clear cached data
+    cachedData = null;
+    lastDataFetch = null;
+    
+    // Clear processed jobs tracking
+    processedJobs.clear();
+    
+    processEndTime = Date.now();
+    const timeSpent = (processEndTime - processStartTime) / 1000;
+    
+    console.log(`🎉 Successfully cleared ${totalCleared} total rows from all sheets in ${timeSpent.toFixed(2)} seconds`);
+    
+    res.json({
+      success: true,
+      message: `Successfully cleared ${totalCleared} rows from all sheets`,
+      sheetsCleared: sheetsToProcess.length,
+      totalRowsCleared: totalCleared,
+      timeSpent: timeSpent
+    });
+    
+  } catch (error) {
+    console.error('❌ Error clearing jobs data:', error);
+    processEndTime = Date.now();
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // API endpoint to mark job as completed and activate next job for driver
 app.post('/api/jobs/complete', async (req, res) => {
