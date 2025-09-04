@@ -620,12 +620,18 @@ function authMiddleware(req, res, next) {
 const CREDENTIALS_PATH = path.join(__dirname, 'google-credentials.json');
 let credentials;
 if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+  console.log('✅ Using environment variable credentials');
+  console.log('📧 Client email:', process.env.GOOGLE_CLIENT_EMAIL);
+  console.log('🔑 Private key available:', !!process.env.GOOGLE_PRIVATE_KEY);
+  console.log('🔑 Private key starts with:', process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.substring(0, 30) : 'N/A');
+  
   credentials = {
     client_email: process.env.GOOGLE_CLIENT_EMAIL,
     // Support newline-escaped secrets
     private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
   };
 } else {
+  console.log('📁 Using file-based credentials');
   credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
 }
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
