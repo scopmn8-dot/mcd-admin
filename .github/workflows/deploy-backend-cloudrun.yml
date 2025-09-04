@@ -57,7 +57,14 @@ jobs:
           docker push $IMAGE_URI
 
       - name: Deploy to Cloud Run
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GOOGLE_CLIENT_EMAIL: ${{ secrets.GOOGLE_CLIENT_EMAIL }}
+          GOOGLE_PRIVATE_KEY_RAW: ${{ secrets.GOOGLE_PRIVATE_KEY }}
         run: |
+          # Escape newlines in private key for environment variable
+          GOOGLE_PRIVATE_KEY_ESC=$(echo "$GOOGLE_PRIVATE_KEY_RAW" | sed ':a;N;$!ba;s/\n/\\n/g')
+          
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image "$IMAGE_URI" \
             --region ${{ env.REGION }} \
@@ -66,7 +73,7 @@ jobs:
             --max-instances 3 \
             --memory 512Mi \
             --port 3001 \
-            --set-env-vars NODE_ENV=production,JWT_SECRET=${{ secrets.JWT_SECRET }},CORS_ORIGIN=${{ vars.CORS_ORIGIN }},GOOGLE_CLIENT_EMAIL=${{ secrets.GOOGLE_CLIENT_EMAIL }},GOOGLE_PRIVATE_KEY=${{ secrets.GOOGLE_PRIVATE_KEY }}
+            --set-env-vars "NODE_ENV=production,JWT_SECRET=${JWT_SECRET},CORS_ORIGIN=${{ vars.CORS_ORIGIN || 'https://scopmn8-dot.github.io' }},GOOGLE_CLIENT_EMAIL=${GOOGLE_CLIENT_EMAIL},GOOGLE_PRIVATE_KEY=${GOOGLE_PRIVATE_KEY_ESC}"
 
       - name: Show service URL
         run: gcloud run services describe ${{ env.SERVICE_NAME }} --region ${{ env.REGION }} --format='value(status.url)'
