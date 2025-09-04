@@ -59,9 +59,12 @@ jobs:
       - name: Deploy to Cloud Run
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          GOOGLE_CLIENT_EMAIL: ${{ secrets.GOOGLE_CLIENT_EMAIL }}
-          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
         run: |
+          # Extract individual fields from the service account JSON
+          GOOGLE_CLIENT_EMAIL=$(echo '${{ secrets.GCP_SA_KEY }}' | jq -r '.client_email')
+          GOOGLE_PRIVATE_KEY=$(echo '${{ secrets.GCP_SA_KEY }}' | jq -r '.private_key')
+          
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image "$IMAGE_URI" \
             --region ${{ env.REGION }} \
