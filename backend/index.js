@@ -307,6 +307,7 @@ app.get('/api/health', (req, res) => {
 
 // Configure CORS: allow comma-separated origins via CORS_ORIGIN env, defaults to '*'
 // Updated to ensure GitHub Pages origin is properly configured
+// Fixed Google Service Account credentials format
 const rawCors = process.env.CORS_ORIGIN || '*';
 const allowedOrigins = rawCors.split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({
