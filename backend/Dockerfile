@@ -1,30 +1,27 @@
 FROM node:18-alpine
 
-# Set working directory
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy source code
-COPY . .
-
-# Create directory for frontend build
-RUN mkdir -p public
-
-# Expose port
-EXPOSE 3001
-
 # Add non-root user for security
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S backend -u 1001
 
-# Change ownership of app directory
-RUN chown -R backend:nodejs /app
+# Set working directory and change ownership
+WORKDIR /app
+RUN chown backend:nodejs /app
+
+# Switch to non-root user
 USER backend
+
+# Copy package files with correct ownership
+COPY --chown=backend:nodejs package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy source code with correct ownership
+COPY --chown=backend:nodejs . .
+
+# Create directory for frontend build
+RUN mkdir -p public
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
