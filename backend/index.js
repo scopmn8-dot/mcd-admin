@@ -424,6 +424,34 @@ function writeUsers(users) {
   fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2), 'utf8');
 }
 
+// Initialize default admin user if no users exist
+async function initializeAdminUser() {
+  try {
+    const users = readUsers();
+    if (users.length === 0) {
+      console.log('🔧 No users found, creating default admin user...');
+      const adminPasswordHash = await bcrypt.hash('admin', 10);
+      const adminUser = {
+        id: generateId('USR'),
+        username: 'admin',
+        passwordHash: adminPasswordHash,
+        role: 'admin',
+        createdAt: new Date().toISOString()
+      };
+      users.push(adminUser);
+      writeUsers(users);
+      console.log('✅ Default admin user created (username: admin, password: admin)');
+    } else {
+      console.log(`📊 Found ${users.length} existing user(s)`);
+    }
+  } catch (error) {
+    console.error('❌ Error initializing admin user:', error.message);
+  }
+}
+
+// Initialize admin user on startup
+initializeAdminUser();
+
 // Register user
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -467,6 +495,36 @@ app.get('/api/auth/verify', authMiddleware, async (req, res) => {
     const user = users.find(u => u.id === req.user.id);
     if (!user) return res.status(401).json({ error: 'user not found' });
     res.json({ user: { id: user.id, username: user.username } });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Force create admin user (for development/testing)
+app.post('/api/auth/force-admin', async (req, res) => {
+  try {
+    const users = readUsers();
+    // Remove existing admin user if it exists
+    const filteredUsers = users.filter(u => u.username !== 'admin');
+    
+    // Create new admin user
+    const adminPasswordHash = await bcrypt.hash('admin', 10);
+    const adminUser = {
+      id: generateId('USR'),
+      username: 'admin',
+      passwordHash: adminPasswordHash,
+      role: 'admin',
+      createdAt: new Date().toISOString()
+    };
+    
+    filteredUsers.push(adminUser);
+    writeUsers(filteredUsers);
+    
+    res.json({ 
+      success: true, 
+      message: 'Admin user created/updated',
+      credentials: { username: 'admin', password: 'admin' }
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
