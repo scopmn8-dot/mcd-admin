@@ -18,6 +18,7 @@ dist/
 # Google credentials
 google-credentials.json
 *-credentials.json
+*-service-account.json
 
 # Data files (may contain sensitive information)
 backend/users.json
