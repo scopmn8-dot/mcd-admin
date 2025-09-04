@@ -1,0 +1,39 @@
+# Security settings for MCD ADMIN
+
+# Deny access to sensitive files
+<Files ".env">
+    Order allow,deny
+    Deny from all
+</Files>
+
+<Files "google-credentials.json">
+    Order allow,deny
+    Deny from all
+</Files>
+
+<Files "users.json">
+    Order allow,deny
+    Deny from all
+</Files>
+
+<Files "processed-jobs.json">
+    Order allow,deny
+    Deny from all
+</Files>
+
+<Files "package.json">
+    Order allow,deny
+    Deny from all
+</Files>
+
+# Allow access to public folder
+<Directory "public">
+    Order allow,deny
+    Allow from all
+</Directory>
+
+# Friendly error pages
+# Place 503.shtml alongside this .htaccess so Apache can find it at /home/.../public_html/mcd-admin/503.shtml
+ErrorDocument 503 /mcd-admin/503.shtml
+# 404 page
+ErrorDocument 404 /mcd-admin/404.shtml

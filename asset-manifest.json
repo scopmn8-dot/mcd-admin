@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/mcd-admin/static/css/main.bc0b1eea.css",
+    "main.js": "/mcd-admin/static/js/main.3145e017.js",
+    "index.html": "/mcd-admin/index.html",
+    "main.bc0b1eea.css.map": "/mcd-admin/static/css/main.bc0b1eea.css.map",
+    "main.3145e017.js.map": "/mcd-admin/static/js/main.3145e017.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.bc0b1eea.css",
+    "static/js/main.3145e017.js"
+  ]
+}
