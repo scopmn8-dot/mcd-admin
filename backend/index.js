@@ -2934,8 +2934,8 @@ app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
     }
 
     // Clear cached data
-    cachedData = null;
-    lastDataFetch = null;
+    cache.data = null;
+    cache.timestamp = 0;
     
     // Clear processed jobs tracking
     processedJobs.clear();
