@@ -15,7 +15,15 @@
     "type": "git",
     "url": "your-repository-url"
   },
-  "keywords": ["logistics", "delivery", "admin", "dashboard"],
+  "keywords": [
+    "logistics",
+    "delivery",
+    "admin",
+    "dashboard"
+  ],
   "author": "Miles Car Delivery",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.11.0"
+  }
 }

@@ -297,12 +297,69 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy', 
+  const diagnostics = {
+    status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    version: '1.0.3'
-  });
+    version: '1.0.3',
+    environment: process.env.NODE_ENV || 'development',
+    credentials: {
+      source: process.env.GOOGLE_CLIENT_EMAIL ? 'environment_variables' : 'file',
+      clientEmail: process.env.GOOGLE_CLIENT_EMAIL || 'using_file',
+      privateKeyAvailable: !!process.env.GOOGLE_PRIVATE_KEY,
+      privateKeyLength: process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.length : 0,
+      privateKeyStart: process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.substring(0, 50) : 'using_file'
+    },
+    jwt: {
+      secretAvailable: !!process.env.JWT_SECRET,
+      secretLength: process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 0
+    },
+    rateLimiting: {
+      enabled: true,
+      apiLimit: API_RATE_LIMIT,
+      windowMs: RATE_LIMIT_WINDOW,
+      cacheTtlMs: CACHE_TTL,
+      currentCalls: apiCallCount,
+      resetTime: new Date(apiCallResetTime).toISOString()
+    }
+  };
+  
+  res.status(200).json(diagnostics);
+});
+
+// Test Google Sheets connection endpoint
+app.get('/api/test-sheets', async (req, res) => {
+  try {
+    console.log('🧪 Testing Google Sheets connection...');
+    const testAuth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: SCOPES,
+    });
+    const client = await testAuth.getClient();
+    console.log('✅ Google Auth client created successfully');
+    
+    // Try a simple spreadsheet metadata call
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const meta = await sheets.spreadsheets.get({ 
+      spreadsheetId: SHEET_ID,
+      fields: 'properties.title'
+    });
+    
+    res.json({
+      success: true,
+      message: 'Google Sheets connection successful',
+      spreadsheetTitle: meta.data.properties?.title || 'Unknown',
+      credentialsSource: process.env.GOOGLE_CLIENT_EMAIL ? 'environment' : 'file'
+    });
+  } catch (error) {
+    console.error('❌ Google Sheets test failed:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code,
+      credentialsSource: process.env.GOOGLE_CLIENT_EMAIL ? 'environment' : 'file'
+    });
+  }
 });
 
 // Configure CORS: allow comma-separated origins via CORS_ORIGIN env, defaults to '*'
