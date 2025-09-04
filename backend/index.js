@@ -648,7 +648,27 @@ let cache = {
   data: null,
   timestamp: 0,
 };
-const CACHE_TTL = 60 * 1000; // 1 minute
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes - increased to reduce API calls
+
+// Rate limiting for Google Sheets API
+let apiCallCount = 0;
+let apiCallResetTime = Date.now();
+const API_RATE_LIMIT = 90; // Max calls per minute (Google allows 100, leaving buffer)
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+
+// Rate limiting helper
+function canMakeApiCall() {
+  const now = Date.now();
+  if (now - apiCallResetTime >= RATE_LIMIT_WINDOW) {
+    apiCallCount = 0;
+    apiCallResetTime = now;
+  }
+  return apiCallCount < API_RATE_LIMIT;
+}
+
+function incrementApiCall() {
+  apiCallCount++;
+}
 
 // In-memory processed jobs store (persist to file/db for production)
 let processedJobs = new Set();
@@ -684,11 +704,22 @@ function persistProcessedJobsToDisk() {
 loadProcessedJobsFromDisk();
 
 async function batchFetchSheets() {
+  // Check rate limit before making API call
+  if (!canMakeApiCall()) {
+    const waitTime = RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime);
+    console.log(`⏳ Rate limit reached. Waiting ${Math.ceil(waitTime/1000)} seconds...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+
   const ranges = [
     `${SHEETS.motorway.name}!A1:AZ1000`,
     `${SHEETS.atmoves.name}!A1:AZ1000`,
     `${SHEETS.privateCustomers.name}!A1:AZ1000`,
   ];
+  
+  incrementApiCall();
+  console.log(`📊 Making Sheets API call (${apiCallCount}/${API_RATE_LIMIT} this minute)`);
+  
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId: SHEET_ID,
     ranges,
@@ -710,7 +741,18 @@ async function batchFetchSheets() {
 
 // Fetch Drivers sheet and look up region for each driver
 async function fetchDriversSheet() {
+  // Check rate limit before making API call
+  if (!canMakeApiCall()) {
+    const waitTime = RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime);
+    console.log(`⏳ Rate limit reached for drivers sheet. Waiting ${Math.ceil(waitTime/1000)} seconds...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+
   const range = `${SHEETS.drivers.name}!A1:AZ5000`; // Increased from 1000 to 5000 to accommodate more drivers
+  
+  incrementApiCall();
+  console.log(`👥 Fetching drivers sheet (${apiCallCount}/${API_RATE_LIMIT} this minute)`);
+  
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
     range,
@@ -750,11 +792,30 @@ app.get('/api/drivers', async (req, res) => {
 async function getCachedData() {
   const now = Date.now();
   if (!cache.data || now - cache.timestamp > CACHE_TTL) {
+    console.log(`🔄 Cache expired, fetching fresh data. API calls this minute: ${apiCallCount}/${API_RATE_LIMIT}`);
     cache.data = await batchFetchSheets();
     cache.timestamp = now;
+  } else {
+    console.log(`📋 Using cached data (${Math.ceil((CACHE_TTL - (now - cache.timestamp)) / 1000)}s remaining)`);
   }
   return cache.data;
 }
+
+// API endpoint to check rate limiting status
+app.get('/api/rate-limit-status', (req, res) => {
+  const now = Date.now();
+  const timeUntilReset = Math.max(0, RATE_LIMIT_WINDOW - (now - apiCallResetTime));
+  
+  res.json({
+    apiCallCount,
+    maxCalls: API_RATE_LIMIT,
+    remainingCalls: Math.max(0, API_RATE_LIMIT - apiCallCount),
+    timeUntilReset: Math.ceil(timeUntilReset / 1000),
+    cacheAge: cache.data ? Math.floor((now - cache.timestamp) / 1000) : 0,
+    cacheTTL: Math.floor(CACHE_TTL / 1000),
+    cacheValid: cache.data && (now - cache.timestamp < CACHE_TTL)
+  });
+});
 
 // Helper to get column letter from index (0-based)
 function colLetter(idx) {
@@ -770,16 +831,36 @@ function colLetter(idx) {
 async function appendRow(sheetName, rowData) {
   try {
     console.log('Appending row to', sheetName, 'with data:', rowData);
+    
+    // Rate limiting for header fetch
+    if (!canMakeApiCall()) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+      console.log(`⏳ Rate limit reached, waiting ${waitTime}s before fetching headers...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+    }
+    
     // Dynamically get header row to determine column count
+    console.log(`📊 Making API call for headers (${apiCallCount + 1}/${API_RATE_LIMIT})`);
     const headerRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: `${sheetName}!1:1`,
     });
+    incrementApiCall();
+    
     const headers = headerRes.data.values[0] || [];
     const lastCol = colLetter(headers.length - 1);
     const range = `${sheetName}!A1:${lastCol}1`;
     console.log('Detected headers:', headers);
     console.log('Using range:', range);
+    
+    // Rate limiting for append
+    if (!canMakeApiCall()) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+      console.log(`⏳ Rate limit reached, waiting ${waitTime}s before appending...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+    }
+    
+    console.log(`📊 Making API call for append (${apiCallCount + 1}/${API_RATE_LIMIT})`);
     const apiRes = await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range,
@@ -787,6 +868,8 @@ async function appendRow(sheetName, rowData) {
       insertDataOption: 'INSERT_ROWS',
       resource: { values: [rowData.slice(0, headers.length)] },
     });
+    incrementApiCall();
+    
     console.log('Google API response:', apiRes.data);
     cache.timestamp = 0; // Invalidate cache
   } catch (err) {
@@ -798,13 +881,24 @@ async function appendRow(sheetName, rowData) {
 // Update a row in a sheet by row index (1-based, including header)
 async function updateRow(sheetName, rowIndex, rowData) {
   console.log('Updating row', rowIndex, 'in', sheetName, 'with data:', rowData);
+  
+  // Rate limiting
+  if (!canMakeApiCall()) {
+    const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+    console.log(`⏳ Rate limit reached, waiting ${waitTime}s before updating...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+  }
+  
   const range = `${sheetName}!A${rowIndex}:AZ${rowIndex}`;
+  console.log(`📊 Making API call for update (${apiCallCount + 1}/${API_RATE_LIMIT})`);
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
     range,
     valueInputOption: 'USER_ENTERED',
     resource: { values: [rowData] },
   });
+  incrementApiCall();
+  
   cache.timestamp = 0; // Invalidate cache
 }
 
@@ -956,8 +1050,18 @@ async function ensureProcessedSheetExists() {
 async function writeCombinedJobsSheet() {
   const sheetName = 'Combined Jobs';
   try {
+    // Rate limiting for metadata check
+    if (!canMakeApiCall()) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+      console.log(`⏳ Rate limit reached, waiting ${waitTime}s before getting metadata...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+    }
+    
     // Get spreadsheet metadata to check existing sheets
+    console.log(`📊 Making API call for metadata (${apiCallCount + 1}/${API_RATE_LIMIT})`);
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    incrementApiCall();
+    
     const existing = (meta.data.sheets || []).find(s => s.properties && s.properties.title === sheetName);
 
     // Source sheets to combine
@@ -968,7 +1072,17 @@ async function writeCombinedJobsSheet() {
     const allHeaderSet = new Set();
     for (const src of sourceSheets) {
       try {
+        // Rate limiting for header fetch
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s before getting headers for ${src}...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        }
+        
+        console.log(`📊 Making API call for ${src} headers (${apiCallCount + 1}/${API_RATE_LIMIT})`);
         const hr = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${src}!1:1` });
+        incrementApiCall();
+        
         const hs = (hr.data.values && hr.data.values[0]) ? hr.data.values[0] : [];
         headersBySheet[src] = hs;
         hs.forEach(h => { if (h) allHeaderSet.add(h); });
@@ -985,25 +1099,73 @@ async function writeCombinedJobsSheet() {
     // Create sheet if missing
     if (!existing) {
       console.log(`'${sheetName}' not found. Creating sheet with headers.`);
+      
+      // Rate limiting for batchUpdate
+      if (!canMakeApiCall()) {
+        const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+        console.log(`⏳ Rate limit reached, waiting ${waitTime}s before creating sheet...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+      }
+      
+      console.log(`📊 Making API call for sheet creation (${apiCallCount + 1}/${API_RATE_LIMIT})`);
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: SHEET_ID,
         resource: { requests: [{ addSheet: { properties: { title: sheetName, gridProperties: { rowCount: 5000, columnCount: Math.max(10, headers.length) } } } }] }
       });
+      incrementApiCall();
+      
+      // Rate limiting for header update
+      if (!canMakeApiCall()) {
+        const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+        console.log(`⏳ Rate limit reached, waiting ${waitTime}s before updating headers...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+      }
+      
+      console.log(`📊 Making API call for header update (${apiCallCount + 1}/${API_RATE_LIMIT})`);
       await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${sheetName}!A1:${colLetter(headers.length - 1)}1`, valueInputOption: 'USER_ENTERED', resource: { values: [headers] } });
+      incrementApiCall();
     } else {
+      // Rate limiting for existing header check
+      if (!canMakeApiCall()) {
+        const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+        console.log(`⏳ Rate limit reached, waiting ${waitTime}s before checking existing headers...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+      }
+      
       // Ensure header row contains our union headers
+      console.log(`📊 Making API call for existing headers (${apiCallCount + 1}/${API_RATE_LIMIT})`);
       const hr = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${sheetName}!1:1` });
+      incrementApiCall();
+      
       let existingHeaders = (hr.data.values && hr.data.values[0]) ? hr.data.values[0] : [];
       const missing = headers.filter(h => !existingHeaders.includes(h));
       if (missing.length > 0 || existingHeaders.length !== headers.length) {
+        // Rate limiting for header update
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s before updating headers...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        }
+        
         // Use the union order (headers) and write the header row
+        console.log(`📊 Making API call for header update (${apiCallCount + 1}/${API_RATE_LIMIT})`);
         await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${sheetName}!A1:${colLetter(headers.length - 1)}1`, valueInputOption: 'USER_ENTERED', resource: { values: [headers] } });
+        incrementApiCall();
       }
+    }
+
+    // Rate limiting for batch read
+    if (!canMakeApiCall()) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+      console.log(`⏳ Rate limit reached, waiting ${waitTime}s before batch read...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
     }
 
     // Read rows from each source sheet (from row 2 onwards)
     const ranges = sourceSheets.map(s => `${s}!A2:AZ10000`);
+    console.log(`📊 Making API call for batch read (${apiCallCount + 1}/${API_RATE_LIMIT})`);
     const batch = await sheets.spreadsheets.values.batchGet({ spreadsheetId: SHEET_ID, ranges });
+    incrementApiCall();
     const valueRanges = batch.data.valueRanges || [];
 
     const rows = [];
@@ -1026,13 +1188,23 @@ async function writeCombinedJobsSheet() {
       }
     }
 
+    // Rate limiting for final write
+    if (!canMakeApiCall()) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+      console.log(`⏳ Rate limit reached, waiting ${waitTime}s before final write...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+    }
+
     // Write all data (replace) under the header
     const allValues = [headers].concat(rows);
     const lastRow = allValues.length;
     const lastColLetter = colLetter(headers.length - 1);
     const writeRange = `${sheetName}!A1:${lastColLetter}${Math.max(1, lastRow)}`;
     console.log(`Writing ${rows.length} combined rows to '${sheetName}' (range ${writeRange})`);
+    console.log(`📊 Making API call for final write (${apiCallCount + 1}/${API_RATE_LIMIT})`);
     await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: writeRange, valueInputOption: 'USER_ENTERED', resource: { values: allValues } });
+    incrementApiCall();
+    
     cache.timestamp = 0;
     console.log(`Combined Jobs sheet updated with ${rows.length} rows.`);
   } catch (err) {
@@ -2768,11 +2940,21 @@ async function processJobCompletion(job_id, driver_name, markAsCompleted = true)
     // Perform batch updates to sheets
     for (const [sheetName, updates] of sheetsToUpdate.entries()) {
       try {
+        // Rate limiting for header fetch
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s before getting headers...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        }
+        
         // Get headers for this sheet
+        console.log(`📊 Making API call for headers (${apiCallCount + 1}/${API_RATE_LIMIT})`);
         const headerRes = await sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
           range: `${sheetName}!1:1`,
         });
+        incrementApiCall();
+        
         const headers = headerRes.data.values[0] || [];
         
         // Ensure we have the required columns in headers
@@ -2781,6 +2963,13 @@ async function processJobCompletion(job_id, driver_name, markAsCompleted = true)
           if (!headers.includes(col)) {
             headers.push(col);
           }
+        }
+        
+        // Rate limiting for batch update
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s before batch update...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
         }
         
         // Prepare batch update data
@@ -2794,10 +2983,12 @@ async function processJobCompletion(job_id, driver_name, markAsCompleted = true)
         });
         
         // Perform batch update
+        console.log(`📊 Making API call for batch update (${apiCallCount + 1}/${API_RATE_LIMIT})`);
         await sheets.spreadsheets.values.batchUpdate({
           spreadsheetId: SHEET_ID,
           resource: { data: batchData, valueInputOption: 'USER_ENTERED' },
         });
+        incrementApiCall();
         
         console.log(`Auto-updated ${updates.length} jobs in ${sheetName} for driver ${driver_name}`);
       } catch (error) {
@@ -2866,15 +3057,17 @@ async function processJobCompletion(job_id, driver_name, markAsCompleted = true)
   }
 }
 
-// Start monitoring sheets every 30 seconds automatically
-console.log('🔄 Starting automatic sheet monitoring every 30 seconds...');
-setInterval(monitorSheetChanges, 30000);
+// Temporarily disabled automatic monitoring to avoid quota issues
+// console.log('🔄 Starting automatic sheet monitoring every 30 seconds...');
+// setInterval(monitorSheetChanges, 30000);
 
 // Run initial check after 5 seconds to allow server to fully start
-setTimeout(() => {
-  console.log('🚀 Running initial sheet monitoring check...');
-  monitorSheetChanges();
-}, 5000);
+// setTimeout(() => {
+//   console.log('🚀 Running initial sheet monitoring check...');
+//   monitorSheetChanges();
+// }, 5000);
+
+console.log('📊 Automatic monitoring disabled - rate limiting enabled for manual operations');
 
 // API endpoint to clear all jobs data from all sheets
 app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
@@ -2905,22 +3098,40 @@ app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
       try {
         console.log(`Clearing sheet: ${sheetName}`);
         
+        // Rate limiting for get operation
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s before getting data...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        }
+        
         // Get current data to count rows
         const dataRange = `${sheetName}!2:10000`; // Skip header row
+        console.log(`📊 Making API call to get data (${apiCallCount + 1}/${API_RATE_LIMIT})`);
         const response = await sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
           range: dataRange,
         });
+        incrementApiCall();
         
         const currentData = response.data.values || [];
         const rowCount = currentData.length;
         
         if (rowCount > 0) {
+          // Rate limiting for clear operation
+          if (!canMakeApiCall()) {
+            const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+            console.log(`⏳ Rate limit reached, waiting ${waitTime}s before clearing...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+          }
+          
           // Clear all data rows (keeping headers)
+          console.log(`📊 Making API call to clear data (${apiCallCount + 1}/${API_RATE_LIMIT})`);
           await sheets.spreadsheets.values.clear({
             spreadsheetId: SHEET_ID,
             range: dataRange,
           });
+          incrementApiCall();
           
           totalCleared += rowCount;
           console.log(`✅ Cleared ${rowCount} rows from ${sheetName}`);
@@ -4214,10 +4425,10 @@ app.listen(PORT, () => {
   if (process.env.NODE_ENV === 'production') {
     console.log('Serving React frontend from /frontend/build');
   }
-  // Ensure consolidated sheet exists once server is up
-  ensureProcessedSheetExists().catch(err => console.error('Startup sheet creation error:', err));
-  // Also build the combined jobs sheet at startup
-  writeCombinedJobsSheet().catch(err => console.error('Startup combined sheet creation error:', err));
+  // Temporarily disabled to avoid quota issues at startup - will be called on-demand
+  // ensureProcessedSheetExists().catch(err => console.error('Startup sheet creation error:', err));
+  // writeCombinedJobsSheet().catch(err => console.error('Startup combined sheet creation error:', err));
+  console.log('📊 Rate limiting enabled: API quota-aware operations ready');
 });
 
 // Helper: write a Batch Plans sheet and append rows for a created batch

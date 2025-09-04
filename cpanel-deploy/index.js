@@ -292,19 +292,57 @@ app.get('/api/process-logs', (req, res) => {
     eta: processEta
   });
 });
-const PORT = process.env.PORT || 3001;
+// Respect platform-provided PORT (e.g., Cloud Run) with fallback
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    version: '1.0.3'
   });
 });
 
-app.use(cors());
+// Configure CORS: allow comma-separated origins via CORS_ORIGIN env, defaults to '*'
+// Updated to ensure GitHub Pages origin is properly configured
+// Fixed Google Service Account credentials format
+const rawCors = process.env.CORS_ORIGIN || '*';
+const allowedOrigins = rawCors.split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow non-browser or same-origin requests
+    if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  }
+}));
 app.use(express.json());
+
+// Root endpoint - API info
+app.get('/', (req, res) => {
+  res.json({
+    name: 'MCD Admin Backend API',
+    version: '1.0.3',
+    status: 'running',
+    endpoints: {
+      health: '/api/health',
+      auth: {
+        login: 'POST /api/auth/login',
+        register: 'POST /api/auth/register',
+        verify: 'GET /api/auth/verify'
+      },
+      data: {
+        motorway: 'GET /api/motorway',
+        atmoves: 'GET /api/atmoves',
+        privateCustomers: 'GET /api/private-customers'
+      }
+    },
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Simple file-backed user store and auth endpoints (no DB)
 import bcrypt from 'bcryptjs';
@@ -377,6 +415,191 @@ app.get('/api/auth/verify', authMiddleware, async (req, res) => {
   }
 });
 
+// User Management API Endpoints
+
+// Get all users (admin only)
+app.get('/api/users', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Check if user has admin privileges
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Remove password hashes from response
+    const safeUsers = users.map(user => {
+      const { passwordHash, ...safeUser } = user;
+      return safeUser;
+    });
+
+    res.json({ users: safeUsers });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get single user
+app.get('/api/users/:id', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Users can only access their own data unless they're admin
+    if (req.params.id !== req.user.id && (!currentUser || currentUser.role !== 'admin')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const user = users.find(u => u.id === req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { passwordHash, ...safeUser } = user;
+    res.json({ user: safeUser });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Create new user (admin only)
+app.post('/api/users', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Check if user has admin privileges
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { username, email, password, firstName, lastName, phone, company, role = 'user' } = req.body;
+    
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'Username, email, and password are required' });
+    }
+
+    // Check if username or email already exists
+    const existingUser = users.find(u => u.username === username || u.email === email);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username or email already exists' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const newUser = {
+      id: generateId('USR'),
+      username,
+      email,
+      passwordHash,
+      firstName: firstName || '',
+      lastName: lastName || '',
+      phone: phone || '',
+      company: company || '',
+      role: role || 'user',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    users.push(newUser);
+    writeUsers(users);
+
+    const { passwordHash: _, ...safeUser } = newUser;
+    res.status(201).json({ user: safeUser, message: 'User created successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Update user (admin or self)
+app.put('/api/users/:id', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Users can only update their own data unless they're admin
+    if (req.params.id !== req.user.id && (!currentUser || currentUser.role !== 'admin')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const userIndex = users.findIndex(u => u.id === req.params.id);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { username, email, password, firstName, lastName, phone, company, role } = req.body;
+    
+    // Check if new username or email conflicts with existing users
+    if (username || email) {
+      const conflictingUser = users.find(u => 
+        u.id !== req.params.id && (u.username === username || u.email === email)
+      );
+      if (conflictingUser) {
+        return res.status(400).json({ error: 'Username or email already exists' });
+      }
+    }
+
+    // Update user data
+    const updatedUser = { ...users[userIndex] };
+    if (username) updatedUser.username = username;
+    if (email) updatedUser.email = email;
+    if (firstName !== undefined) updatedUser.firstName = firstName;
+    if (lastName !== undefined) updatedUser.lastName = lastName;
+    if (phone !== undefined) updatedUser.phone = phone;
+    if (company !== undefined) updatedUser.company = company;
+    
+    // Only admins can change roles
+    if (role && currentUser.role === 'admin') {
+      updatedUser.role = role;
+    }
+    
+    // Update password if provided
+    if (password && password.trim() !== '') {
+      updatedUser.passwordHash = await bcrypt.hash(password, 10);
+    }
+    
+    updatedUser.updatedAt = new Date().toISOString();
+
+    users[userIndex] = updatedUser;
+    writeUsers(users);
+
+    const { passwordHash: _, ...safeUser } = updatedUser;
+    res.json({ user: safeUser, message: 'User updated successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete user (admin only)
+app.delete('/api/users/:id', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Check if user has admin privileges
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Prevent self-deletion
+    if (req.params.id === req.user.id) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    const userIndex = users.findIndex(u => u.id === req.params.id);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    users.splice(userIndex, 1);
+    writeUsers(users);
+
+    res.json({ message: 'User deleted successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Middleware to protect routes
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
@@ -393,8 +616,18 @@ function authMiddleware(req, res, next) {
 
 
 // Google Sheets setup
+// Google credentials: prefer env vars, fallback to bundled file
 const CREDENTIALS_PATH = path.join(__dirname, 'google-credentials.json');
-const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+let credentials;
+if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+  credentials = {
+    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+    // Support newline-escaped secrets
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
+  };
+} else {
+  credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+}
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 const auth = new google.auth.GoogleAuth({
   credentials,
@@ -415,7 +648,27 @@ let cache = {
   data: null,
   timestamp: 0,
 };
-const CACHE_TTL = 60 * 1000; // 1 minute
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes - increased to reduce API calls
+
+// Rate limiting for Google Sheets API
+let apiCallCount = 0;
+let apiCallResetTime = Date.now();
+const API_RATE_LIMIT = 90; // Max calls per minute (Google allows 100, leaving buffer)
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+
+// Rate limiting helper
+function canMakeApiCall() {
+  const now = Date.now();
+  if (now - apiCallResetTime >= RATE_LIMIT_WINDOW) {
+    apiCallCount = 0;
+    apiCallResetTime = now;
+  }
+  return apiCallCount < API_RATE_LIMIT;
+}
+
+function incrementApiCall() {
+  apiCallCount++;
+}
 
 // In-memory processed jobs store (persist to file/db for production)
 let processedJobs = new Set();
@@ -451,11 +704,22 @@ function persistProcessedJobsToDisk() {
 loadProcessedJobsFromDisk();
 
 async function batchFetchSheets() {
+  // Check rate limit before making API call
+  if (!canMakeApiCall()) {
+    const waitTime = RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime);
+    console.log(`⏳ Rate limit reached. Waiting ${Math.ceil(waitTime/1000)} seconds...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+
   const ranges = [
     `${SHEETS.motorway.name}!A1:AZ1000`,
     `${SHEETS.atmoves.name}!A1:AZ1000`,
     `${SHEETS.privateCustomers.name}!A1:AZ1000`,
   ];
+  
+  incrementApiCall();
+  console.log(`📊 Making Sheets API call (${apiCallCount}/${API_RATE_LIMIT} this minute)`);
+  
   const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId: SHEET_ID,
     ranges,
@@ -477,7 +741,18 @@ async function batchFetchSheets() {
 
 // Fetch Drivers sheet and look up region for each driver
 async function fetchDriversSheet() {
+  // Check rate limit before making API call
+  if (!canMakeApiCall()) {
+    const waitTime = RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime);
+    console.log(`⏳ Rate limit reached for drivers sheet. Waiting ${Math.ceil(waitTime/1000)} seconds...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+
   const range = `${SHEETS.drivers.name}!A1:AZ5000`; // Increased from 1000 to 5000 to accommodate more drivers
+  
+  incrementApiCall();
+  console.log(`👥 Fetching drivers sheet (${apiCallCount}/${API_RATE_LIMIT} this minute)`);
+  
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
     range,
@@ -517,11 +792,30 @@ app.get('/api/drivers', async (req, res) => {
 async function getCachedData() {
   const now = Date.now();
   if (!cache.data || now - cache.timestamp > CACHE_TTL) {
+    console.log(`🔄 Cache expired, fetching fresh data. API calls this minute: ${apiCallCount}/${API_RATE_LIMIT}`);
     cache.data = await batchFetchSheets();
     cache.timestamp = now;
+  } else {
+    console.log(`📋 Using cached data (${Math.ceil((CACHE_TTL - (now - cache.timestamp)) / 1000)}s remaining)`);
   }
   return cache.data;
 }
+
+// API endpoint to check rate limiting status
+app.get('/api/rate-limit-status', (req, res) => {
+  const now = Date.now();
+  const timeUntilReset = Math.max(0, RATE_LIMIT_WINDOW - (now - apiCallResetTime));
+  
+  res.json({
+    apiCallCount,
+    maxCalls: API_RATE_LIMIT,
+    remainingCalls: Math.max(0, API_RATE_LIMIT - apiCallCount),
+    timeUntilReset: Math.ceil(timeUntilReset / 1000),
+    cacheAge: cache.data ? Math.floor((now - cache.timestamp) / 1000) : 0,
+    cacheTTL: Math.floor(CACHE_TTL / 1000),
+    cacheValid: cache.data && (now - cache.timestamp < CACHE_TTL)
+  });
+});
 
 // Helper to get column letter from index (0-based)
 function colLetter(idx) {
@@ -537,16 +831,36 @@ function colLetter(idx) {
 async function appendRow(sheetName, rowData) {
   try {
     console.log('Appending row to', sheetName, 'with data:', rowData);
+    
+    // Rate limiting for header fetch
+    if (!canMakeApiCall()) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+      console.log(`⏳ Rate limit reached, waiting ${waitTime}s before fetching headers...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+    }
+    
     // Dynamically get header row to determine column count
+    console.log(`📊 Making API call for headers (${apiCallCount + 1}/${API_RATE_LIMIT})`);
     const headerRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: `${sheetName}!1:1`,
     });
+    incrementApiCall();
+    
     const headers = headerRes.data.values[0] || [];
     const lastCol = colLetter(headers.length - 1);
     const range = `${sheetName}!A1:${lastCol}1`;
     console.log('Detected headers:', headers);
     console.log('Using range:', range);
+    
+    // Rate limiting for append
+    if (!canMakeApiCall()) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+      console.log(`⏳ Rate limit reached, waiting ${waitTime}s before appending...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+    }
+    
+    console.log(`📊 Making API call for append (${apiCallCount + 1}/${API_RATE_LIMIT})`);
     const apiRes = await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range,
@@ -554,6 +868,8 @@ async function appendRow(sheetName, rowData) {
       insertDataOption: 'INSERT_ROWS',
       resource: { values: [rowData.slice(0, headers.length)] },
     });
+    incrementApiCall();
+    
     console.log('Google API response:', apiRes.data);
     cache.timestamp = 0; // Invalidate cache
   } catch (err) {
@@ -565,13 +881,24 @@ async function appendRow(sheetName, rowData) {
 // Update a row in a sheet by row index (1-based, including header)
 async function updateRow(sheetName, rowIndex, rowData) {
   console.log('Updating row', rowIndex, 'in', sheetName, 'with data:', rowData);
+  
+  // Rate limiting
+  if (!canMakeApiCall()) {
+    const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+    console.log(`⏳ Rate limit reached, waiting ${waitTime}s before updating...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+  }
+  
   const range = `${sheetName}!A${rowIndex}:AZ${rowIndex}`;
+  console.log(`📊 Making API call for update (${apiCallCount + 1}/${API_RATE_LIMIT})`);
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
     range,
     valueInputOption: 'USER_ENTERED',
     resource: { values: [rowData] },
   });
+  incrementApiCall();
+  
   cache.timestamp = 0; // Invalidate cache
 }
 
@@ -2535,11 +2862,21 @@ async function processJobCompletion(job_id, driver_name, markAsCompleted = true)
     // Perform batch updates to sheets
     for (const [sheetName, updates] of sheetsToUpdate.entries()) {
       try {
+        // Rate limiting for header fetch
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s before getting headers...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        }
+        
         // Get headers for this sheet
+        console.log(`📊 Making API call for headers (${apiCallCount + 1}/${API_RATE_LIMIT})`);
         const headerRes = await sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
           range: `${sheetName}!1:1`,
         });
+        incrementApiCall();
+        
         const headers = headerRes.data.values[0] || [];
         
         // Ensure we have the required columns in headers
@@ -2548,6 +2885,13 @@ async function processJobCompletion(job_id, driver_name, markAsCompleted = true)
           if (!headers.includes(col)) {
             headers.push(col);
           }
+        }
+        
+        // Rate limiting for batch update
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s before batch update...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
         }
         
         // Prepare batch update data
@@ -2561,10 +2905,12 @@ async function processJobCompletion(job_id, driver_name, markAsCompleted = true)
         });
         
         // Perform batch update
+        console.log(`📊 Making API call for batch update (${apiCallCount + 1}/${API_RATE_LIMIT})`);
         await sheets.spreadsheets.values.batchUpdate({
           spreadsheetId: SHEET_ID,
           resource: { data: batchData, valueInputOption: 'USER_ENTERED' },
         });
+        incrementApiCall();
         
         console.log(`Auto-updated ${updates.length} jobs in ${sheetName} for driver ${driver_name}`);
       } catch (error) {
@@ -2642,6 +2988,108 @@ setTimeout(() => {
   console.log('🚀 Running initial sheet monitoring check...');
   monitorSheetChanges();
 }, 5000);
+
+// API endpoint to clear all jobs data from all sheets
+app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
+  try {
+    const users = readUsers();
+    const currentUser = users.find(u => u.id === req.user.id);
+    
+    // Check if user has admin privileges
+    if (!currentUser || currentUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    console.log('🗑️ Clearing all jobs data from all sheets...');
+    processStartTime = Date.now();
+    processEndTime = null;
+    processEta = null;
+
+    const sheetsToProcess = [
+      SHEETS.motorway.name,
+      SHEETS.atmoves.name, 
+      SHEETS.privateCustomers.name,
+      'Processed Jobs'
+    ];
+
+    let totalCleared = 0;
+
+    for (const sheetName of sheetsToProcess) {
+      try {
+        console.log(`Clearing sheet: ${sheetName}`);
+        
+        // Rate limiting for get operation
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s before getting data...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        }
+        
+        // Get current data to count rows
+        const dataRange = `${sheetName}!2:10000`; // Skip header row
+        console.log(`📊 Making API call to get data (${apiCallCount + 1}/${API_RATE_LIMIT})`);
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: dataRange,
+        });
+        incrementApiCall();
+        
+        const currentData = response.data.values || [];
+        const rowCount = currentData.length;
+        
+        if (rowCount > 0) {
+          // Rate limiting for clear operation
+          if (!canMakeApiCall()) {
+            const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+            console.log(`⏳ Rate limit reached, waiting ${waitTime}s before clearing...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+          }
+          
+          // Clear all data rows (keeping headers)
+          console.log(`📊 Making API call to clear data (${apiCallCount + 1}/${API_RATE_LIMIT})`);
+          await sheets.spreadsheets.values.clear({
+            spreadsheetId: SHEET_ID,
+            range: dataRange,
+          });
+          incrementApiCall();
+          
+          totalCleared += rowCount;
+          console.log(`✅ Cleared ${rowCount} rows from ${sheetName}`);
+        } else {
+          console.log(`📝 ${sheetName} was already empty`);
+        }
+        
+      } catch (error) {
+        console.error(`❌ Error clearing ${sheetName}:`, error.message);
+      }
+    }
+
+    // Clear cached data
+    cache.data = null;
+    cache.timestamp = 0;
+    
+    // Clear processed jobs tracking
+    processedJobs.clear();
+    
+    processEndTime = Date.now();
+    const timeSpent = (processEndTime - processStartTime) / 1000;
+    
+    console.log(`🎉 Successfully cleared ${totalCleared} total rows from all sheets in ${timeSpent.toFixed(2)} seconds`);
+    
+    res.json({
+      success: true,
+      message: `Successfully cleared ${totalCleared} rows from all sheets`,
+      sheetsCleared: sheetsToProcess.length,
+      totalRowsCleared: totalCleared,
+      timeSpent: timeSpent
+    });
+    
+  } catch (error) {
+    console.error('❌ Error clearing jobs data:', error);
+    processEndTime = Date.now();
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // API endpoint to mark job as completed and activate next job for driver
 app.post('/api/jobs/complete', async (req, res) => {
@@ -3880,22 +4328,9 @@ app.post('/api/jobs/enforce-sequencing', async (req, res) => {
   }
 });
 
-// Serve static files from the public folder
-app.use(express.static(path.join(__dirname, 'public')));
-
 // Serve React frontend in production
 if (process.env.NODE_ENV === 'production') {
-  // Handle React routing - send all non-API requests to React app (except /api routes)
-  app.get('*', (req, res) => {
-    // Skip API routes
-    if (req.path.startsWith('/api')) {
-      return res.status(404).json({ error: 'API endpoint not found' });
-    }
-    // Serve index.html for all other routes
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-  });
-} else {
-  // Development: serve from different path
+  // Serve static files from the React build
   app.use(express.static(path.join(__dirname, '../frontend/build')));
   
   // Handle React routing - send all non-API requests to React app
