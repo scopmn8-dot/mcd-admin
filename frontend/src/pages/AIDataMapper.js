@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import {
   Box,
   Paper,
@@ -45,7 +46,9 @@ import {
   AutoFixHigh as AutoFixIcon,
   DataArray as DataIcon,
   TableChart as TableIcon,
-  Visibility as PreviewIcon
+  Visibility as PreviewIcon,
+  CloudUpload as CloudUploadIcon,
+  ContentPaste as ContentPasteIcon
 } from '@mui/icons-material';
 import { apiFetch } from '../api';
 
@@ -61,6 +64,8 @@ const AIDataMapper = () => {
   const [sheets, setSheets] = useState([]);
   const [realHeaders, setRealHeaders] = useState({});
   const [loadingHeaders, setLoadingHeaders] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [uploadMode, setUploadMode] = useState('paste'); // 'paste' or 'upload'
 
   // Known column structures for different sheets - using real Google Sheets headers
   const sheetStructures = {
@@ -134,6 +139,76 @@ const AIDataMapper = () => {
     } finally {
       setLoadingHeaders(false);
     }
+  };
+
+  // Handle file upload
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Check file type
+    const allowedTypes = [
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'text/tab-separated-values'
+    ];
+    
+    if (!allowedTypes.includes(file.type) && !file.name.match(/\.(xlsx?|csv|tsv)$/i)) {
+      alert('Please upload a valid Excel (.xlsx, .xls) or CSV file');
+      return;
+    }
+
+    setUploadedFile(file);
+    
+    // Parse the file
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target.result;
+        let parsedData = '';
+        
+        if (file.type.includes('csv') || file.name.toLowerCase().endsWith('.csv')) {
+          // Handle CSV files
+          parsedData = data;
+        } else if (file.name.toLowerCase().endsWith('.tsv')) {
+          // Handle TSV files
+          parsedData = data;
+        } else if (file.type.includes('sheet') || file.name.match(/\.xlsx?$/i)) {
+          // Handle Excel files using xlsx library
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          // Convert to CSV format
+          parsedData = XLSX.utils.sheet_to_csv(worksheet);
+        } else {
+          parsedData = data; // Assume tab-separated or similar
+        }
+        
+        setRawData(parsedData);
+        setUploadMode('upload');
+      } catch (error) {
+        console.error('Error parsing file:', error);
+        alert('Error parsing file. Please check the file format.');
+        setUploadedFile(null);
+      }
+    };
+    
+    // Read file appropriately based on type
+    if (file.type.includes('csv') || file.name.toLowerCase().endsWith('.csv') || 
+        file.name.toLowerCase().endsWith('.tsv')) {
+      reader.readAsText(file);
+    } else {
+      reader.readAsArrayBuffer(file);
+    }
+  };
+
+  // Reset upload
+  const resetUpload = () => {
+    setUploadedFile(null);
+    setUploadMode('paste');
+    setRawData('');
   };
 
   const analyzeData = () => {
@@ -443,17 +518,115 @@ const AIDataMapper = () => {
             <CardContent>
               <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
                 <DataIcon color="primary" />
-                <Typography variant="h6">Paste Your Data</Typography>
+                <Typography variant="h6">Import Your Data</Typography>
               </Stack>
-              
-              <TextField
-                fullWidth
-                multiline
-                minRows={10}
-                maxRows={15}
-                value={rawData}
-                onChange={(e) => setRawData(e.target.value)}
-                placeholder="Paste your copied sheet data here (CSV, TSV, or Excel format)...
+
+              {/* Upload/Paste Mode Toggle */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>Choose import method:</Typography>
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    variant={uploadMode === 'paste' ? 'contained' : 'outlined'}
+                    onClick={() => setUploadMode('paste')}
+                    startIcon={<ContentPasteIcon />}
+                    size="small"
+                  >
+                    Paste Data
+                  </Button>
+                  <Button
+                    variant={uploadMode === 'upload' ? 'contained' : 'outlined'}
+                    onClick={() => setUploadMode('upload')}
+                    startIcon={<CloudUploadIcon />}
+                    size="small"
+                  >
+                    Upload File
+                  </Button>
+                </Stack>
+              </Box>
+
+              {uploadMode === 'upload' ? (
+                <Box>
+                  {/* File Upload Section */}
+                  <Box sx={{ 
+                    border: '2px dashed #ccc', 
+                    borderRadius: 2, 
+                    p: 3, 
+                    textAlign: 'center',
+                    mb: 2,
+                    backgroundColor: uploadedFile ? '#f5f5f5' : 'transparent'
+                  }}>
+                    {uploadedFile ? (
+                      <Box>
+                        <CloudUploadIcon sx={{ fontSize: 48, color: 'success.main', mb: 1 }} />
+                        <Typography variant="h6" color="success.main">
+                          File Uploaded Successfully!
+                        </Typography>
+                        <Typography variant="body2" sx={{ mb: 2 }}>
+                          {uploadedFile.name} ({(uploadedFile.size / 1024).toFixed(2)} KB)
+                        </Typography>
+                        <Stack direction="row" spacing={1} justifyContent="center">
+                          <Button
+                            variant="outlined"
+                            onClick={resetUpload}
+                            size="small"
+                          >
+                            Choose Different File
+                          </Button>
+                          <Button
+                            variant="contained"
+                            onClick={analyzeData}
+                            disabled={loading || !rawData.trim()}
+                            startIcon={loading ? <RefreshIcon /> : <AutoFixIcon />}
+                            size="small"
+                          >
+                            {loading ? 'Analyzing...' : 'Analyze Data'}
+                          </Button>
+                        </Stack>
+                      </Box>
+                    ) : (
+                      <Box>
+                        <CloudUploadIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
+                        <Typography variant="h6" sx={{ mb: 1 }}>
+                          Upload Job Data File
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                          Support: CSV (.csv), Excel (.xlsx, .xls), TSV (.tsv)
+                        </Typography>
+                        <input
+                          type="file"
+                          accept=".csv,.xlsx,.xls,.tsv"
+                          onChange={handleFileUpload}
+                          style={{ display: 'none' }}
+                          id="file-upload-input"
+                        />
+                        <label htmlFor="file-upload-input">
+                          <Button
+                            variant="contained"
+                            component="span"
+                            startIcon={<CloudUploadIcon />}
+                          >
+                            Choose File
+                          </Button>
+                        </label>
+                      </Box>
+                    )}
+                  </Box>
+                  
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+                    💡 Upload your job data file and let AI automatically detect and map columns
+                  </Typography>
+                </Box>
+              ) : (
+                <Box>
+                  {/* Paste Data Section */}
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={10}
+                    maxRows={15}
+                    value={rawData}
+                    onChange={(e) => setRawData(e.target.value)}
+                    placeholder="Paste your copied sheet data here (CSV, TSV, or Excel format)...
 
 Examples:
 
@@ -470,24 +643,26 @@ Jane Doe	2024-01-16	No	Holiday
 ✅ For Processed Jobs:
 Job Reference	Driver	Status	Date Completed
 JOB001	John Smith	Completed	2024-01-15"
-                variant="outlined"
-                sx={{ mb: 2 }}
-              />
+                    variant="outlined"
+                    sx={{ mb: 2 }}
+                  />
 
-              <Button
-                variant="contained"
-                onClick={analyzeData}
-                disabled={loading || !rawData.trim()}
-                startIcon={loading ? <RefreshIcon /> : <AutoFixIcon />}
-                fullWidth
-                sx={{ mb: 2 }}
-              >
-                {loading ? 'Analyzing...' : 'Analyze Data with AI'}
-              </Button>
+                  <Button
+                    variant="contained"
+                    onClick={analyzeData}
+                    disabled={loading || !rawData.trim()}
+                    startIcon={loading ? <RefreshIcon /> : <AutoFixIcon />}
+                    fullWidth
+                    sx={{ mb: 2 }}
+                  >
+                    {loading ? 'Analyzing...' : 'Analyze Data with AI'}
+                  </Button>
 
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
-                💡 Supports data copied from Excel, Google Sheets, CSV files, and more
-              </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+                    💡 Supports data copied from Excel, Google Sheets, CSV files, and more
+                  </Typography>
+                </Box>
+              )}
             </CardContent>
           </Card>
         </Grid>

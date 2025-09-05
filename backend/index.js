@@ -245,6 +245,7 @@ import cors from 'cors';
 import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
+import multer from 'multer';
 
 
 const app = express();
@@ -4821,6 +4822,70 @@ app.post('/api/batch-plans/create', async (req, res) => {
   } catch (e) {
     console.error('Error creating batch plan:', e.response?.data || e.message || e);
     res.status(500).json({ error: e.message || 'Failed to create batch plan' });
+  }
+});
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'text/tab-separated-values'
+    ];
+    
+    if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(xlsx?|csv|tsv)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only Excel (.xlsx, .xls) and CSV files are allowed'));
+    }
+  }
+});
+
+// AI File Upload endpoint - upload and parse Excel/CSV files
+app.post('/api/ai-upload-file', authMiddleware, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { originalname, mimetype, buffer } = req.file;
+    console.log(`📄 File Upload: Processing ${originalname} (${mimetype})`);
+
+    let parsedData = '';
+    
+    // Parse file based on type
+    if (mimetype.includes('csv') || originalname.toLowerCase().endsWith('.csv')) {
+      // Handle CSV files
+      parsedData = buffer.toString('utf8');
+    } else if (originalname.toLowerCase().endsWith('.tsv')) {
+      // Handle TSV files
+      parsedData = buffer.toString('utf8');
+    } else if (mimetype.includes('sheet') || originalname.match(/\.xlsx?$/i)) {
+      // Handle Excel files - for now, suggest CSV conversion
+      return res.status(400).json({ 
+        error: 'Excel files not yet supported in backend upload. Please save as CSV and upload, or use the copy-paste method.' 
+      });
+    } else {
+      return res.status(400).json({ error: 'Unsupported file format' });
+    }
+
+    // Return parsed data for AI processing on frontend
+    res.json({ 
+      success: true, 
+      data: parsedData,
+      filename: originalname,
+      message: `File ${originalname} parsed successfully. Ready for AI analysis.`
+    });
+
+  } catch (error) {
+    console.error('❌ File Upload error:', error);
+    res.status(500).json({ error: error.message || 'Failed to process uploaded file' });
   }
 });
 
