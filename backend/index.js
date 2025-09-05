@@ -798,6 +798,14 @@ function incrementApiCall() {
   apiCallCount++;
 }
 
+// Helper function to invalidate cache and log the reason
+function invalidateCache(reason = 'Data modified') {
+  const oldTimestamp = cache.timestamp;
+  cache.timestamp = 0;
+  cache.data = null;
+  console.log(`🗑️ Cache invalidated: ${reason} (was ${oldTimestamp > 0 ? Math.floor((Date.now() - oldTimestamp) / 1000) + 's old' : 'empty'})`);
+}
+
 // In-memory processed jobs store (persist to file/db for production)
 let processedJobs = new Set();
 const PROCESSED_STORE_PATH = path.join(__dirname, 'processed-jobs.json');
@@ -917,15 +925,30 @@ app.get('/api/drivers', async (req, res) => {
   }
 });
 
-async function getCachedData() {
+async function getCachedData(forceRefresh = false) {
   const now = Date.now();
-  if (!cache.data || now - cache.timestamp > CACHE_TTL) {
-    console.log(`🔄 Cache expired, fetching fresh data. API calls this minute: ${apiCallCount}/${API_RATE_LIMIT}`);
-    cache.data = await batchFetchSheets();
-    cache.timestamp = now;
+  
+  // Check if we should force refresh or cache is expired
+  if (forceRefresh || !cache.data || now - cache.timestamp > CACHE_TTL) {
+    console.log(`🔄 ${forceRefresh ? 'Force refreshing' : 'Cache expired, fetching fresh'} data. API calls this minute: ${apiCallCount}/${API_RATE_LIMIT}`);
+    
+    try {
+      cache.data = await batchFetchSheets();
+      cache.timestamp = now;
+      console.log(`✅ Cache updated successfully. Total jobs: ${cache.data.motorway.length + cache.data.atmoves.length + cache.data.privateCustomers.length}`);
+    } catch (error) {
+      console.error('❌ Error fetching fresh data:', error);
+      // If we have stale cache data and fetch fails, return it with a warning
+      if (cache.data) {
+        console.log('⚠️ Using stale cache data due to fetch error');
+        return cache.data;
+      }
+      throw error;
+    }
   } else {
     console.log(`📋 Using cached data (${Math.ceil((CACHE_TTL - (now - cache.timestamp)) / 1000)}s remaining)`);
   }
+  
   return cache.data;
 }
 
@@ -943,6 +966,48 @@ app.get('/api/rate-limit-status', (req, res) => {
     cacheTTL: Math.floor(CACHE_TTL / 1000),
     cacheValid: cache.data && (now - cache.timestamp < CACHE_TTL)
   });
+});
+
+// API endpoint to force refresh cached data from Google Sheets
+app.post('/api/refresh-cache', authMiddleware, async (req, res) => {
+  try {
+    console.log('🔄 Force refreshing cache from Google Sheets...');
+    
+    // Check if we can make API calls (rate limiting)
+    if (!canMakeApiCall()) {
+      const resetTime = new Date(apiCallResetTime + RATE_LIMIT_WINDOW).toLocaleTimeString();
+      return res.status(429).json({ 
+        error: `Rate limit exceeded. Please try again after ${resetTime}`,
+        remainingCalls: Math.max(0, API_RATE_LIMIT - apiCallCount),
+        resetTime: resetTime
+      });
+    }
+
+    // Force cache invalidation and fetch fresh data
+    const freshData = await getCachedData(true); // Force refresh
+    
+    const totalJobs = freshData.motorway.length + freshData.atmoves.length + freshData.privateCustomers.length;
+    
+    console.log(`✅ Cache refreshed successfully. Total jobs: ${totalJobs}`);
+    
+    res.json({
+      success: true,
+      message: `Data refreshed successfully from Google Sheets`,
+      totalJobs: totalJobs,
+      motorwayJobs: freshData.motorway.length,
+      atmovesJobs: freshData.atmoves.length,
+      privateCustomerJobs: freshData.privateCustomers.length,
+      refreshedAt: new Date().toISOString(),
+      apiCallsRemaining: Math.max(0, API_RATE_LIMIT - apiCallCount)
+    });
+    
+  } catch (error) {
+    console.error('❌ Error refreshing cache:', error);
+    res.status(500).json({ 
+      error: error.message || 'Failed to refresh data from Google Sheets',
+      apiCallsRemaining: Math.max(0, API_RATE_LIMIT - apiCallCount)
+    });
+  }
 });
 
 // Helper to get column letter from index (0-based)

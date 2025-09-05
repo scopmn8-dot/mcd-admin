@@ -39,7 +39,8 @@ import {
   Assessment as AssessmentIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  DeleteSweep as DeleteSweepIcon
+  DeleteSweep as DeleteSweepIcon,
+  Sync as SyncIcon
 } from "@mui/icons-material";
 import AddRowModal from "../components/AddRowModal";
 // JobCompletionButton removed — complete-job flow is handled automatically
@@ -298,6 +299,8 @@ export default function Dashboard() {
   const [clearingJobs, setClearingJobs] = useState(false);
   const [clearJobsMsg, setClearJobsMsg] = useState("");
   const [showActions, setShowActions] = useState(!isMobile);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
 
   const fetchAll = () => {
     setLoading(true);
@@ -339,6 +342,39 @@ export default function Dashboard() {
     };
 
     sheets.forEach(fetchSheet);
+  };
+
+  const handleSyncWithSheets = async () => {
+    setSyncing(true);
+    setSyncMsg("");
+    
+    try {
+      const token = localStorage.getItem('token');
+      const res = await apiFetch("/api/refresh-cache", {
+        method: "POST",
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Error syncing with sheets");
+      }
+
+      const data = await res.json();
+      setSyncMsg(`✅ Synced successfully! Found ${data.totalJobs} total jobs (${data.motorwayJobs} Motorway, ${data.atmovesJobs} ATMoves, ${data.privateCustomerJobs} Private)`);
+      
+      // Refresh the UI data after successful cache refresh
+      fetchAll();
+      
+    } catch (error) {
+      console.error('Error syncing with sheets:', error);
+      setSyncMsg(`❌ ${error.message}`);
+    } finally {
+      setSyncing(false);
+    }
   };
 
   useEffect(() => {
@@ -550,9 +586,27 @@ export default function Dashboard() {
           </Box>
           <Stack direction="row" spacing={2} sx={{ mt: { xs: 2, md: 0 } }}>
             <DriverQueueViewer />
+            <Tooltip title="Sync with Google Sheets" arrow>
+              <span>
+                <IconButton 
+                  onClick={handleSyncWithSheets} 
+                  disabled={syncing || loading} 
+                  size="large" 
+                  sx={{ 
+                    background: 'action.hover',
+                    '&:hover': {
+                      backgroundColor: 'primary.main',
+                      color: 'white'
+                    }
+                  }}
+                >
+                  {syncing ? <CircularProgress size={24} /> : <SyncIcon />}
+                </IconButton>
+              </span>
+            </Tooltip>
             <Tooltip title="Refresh Data" arrow>
               <span>
-                <IconButton onClick={fetchAll} disabled={loading} size="large" sx={{ background: 'action.hover' }}>
+                <IconButton onClick={fetchAll} disabled={loading || syncing} size="large" sx={{ background: 'action.hover' }}>
                   <RefreshIcon />
                 </IconButton>
               </span>
@@ -702,8 +756,25 @@ export default function Dashboard() {
       </Card>
 
       {/* Enhanced Alerts */}
-      {(autoAssignMsg || assignDriversMsg || clearJobsMsg) && (
+      {(autoAssignMsg || assignDriversMsg || clearJobsMsg || syncMsg) && (
         <Box sx={{ mb: 3 }}>
+          {syncMsg && (
+            <Alert 
+              severity={syncMsg.includes("✅") ? "success" : "error"} 
+              sx={{ 
+                mb: 2, 
+                borderRadius: 3,
+                fontSize: '0.95rem',
+                fontWeight: 500,
+                '& .MuiAlert-icon': {
+                  fontSize: '1.5rem',
+                },
+              }}
+              onClose={() => setSyncMsg("")}
+            >
+              {syncMsg}
+            </Alert>
+          )}
           {autoAssignMsg && (
             <Alert 
               severity={autoAssignMsg.includes("success") ? "success" : "error"} 
