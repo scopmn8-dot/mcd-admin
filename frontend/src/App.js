@@ -443,8 +443,8 @@ function App() {
   const unreadNotificationCount = notifications.filter(n => !n.read).length;
 
   // Auto-run: periodically run clustering, assignment and order-id assignment
-  const [autoRunEnabled, setAutoRunEnabled] = useState(true); // default active and running
-  const [autoRunStatus, setAutoRunStatus] = useState('running'); // 'idle' | 'running' | 'error'
+  const [autoRunEnabled, setAutoRunEnabled] = useState(false); // Start disabled to prevent conflicts with manual edits
+  const [autoRunStatus, setAutoRunStatus] = useState('idle'); // 'idle' | 'running' | 'error'
   const [lastAutoRun, setLastAutoRun] = useState(null);
   const [autoRunSteps, setAutoRunSteps] = useState({
     clustering: 'pending', // 'pending' | 'running' | 'success' | 'error'
@@ -502,9 +502,16 @@ function App() {
   useEffect(() => {
     let id = null;
     if (autoRunEnabled) {
-      // run immediately then on interval
-      runAutoSequence();
-      id = setInterval(() => runAutoSequence(), 30 * 1000); // 30s
+      // Delay initial run to allow manual edits, then run every 5 minutes instead of 30 seconds
+      const initialDelay = setTimeout(() => {
+        runAutoSequence();
+        id = setInterval(() => runAutoSequence(), 5 * 60 * 1000); // 5 minutes instead of 30 seconds
+      }, 30 * 1000); // 30 second delay before first run
+      
+      return () => {
+        clearTimeout(initialDelay);
+        if (id) clearInterval(id);
+      };
     }
     return () => {
       if (id) clearInterval(id);

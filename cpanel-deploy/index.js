@@ -806,6 +806,27 @@ function invalidateCache(reason = 'Data modified') {
   console.log(`🗑️ Cache invalidated: ${reason} (was ${oldTimestamp > 0 ? Math.floor((Date.now() - oldTimestamp) / 1000) + 's old' : 'empty'})`);
 }
 
+// Helper function to preserve manual edits for a brief period
+let manualEditProtection = {};
+function protectFromAutoOverwrite(sheetName, rowIdx, durationMs = 5 * 60 * 1000) { // 5 minutes protection
+  const key = `${sheetName}_${rowIdx}`;
+  manualEditProtection[key] = Date.now() + durationMs;
+  console.log(`🛡️ Protected ${key} from auto-overwrite for ${durationMs/1000}s`);
+}
+
+function isProtectedFromOverwrite(sheetName, rowIdx) {
+  const key = `${sheetName}_${rowIdx}`;
+  const protectedUntil = manualEditProtection[key];
+  if (protectedUntil && Date.now() < protectedUntil) {
+    return true;
+  }
+  // Clean up expired protection
+  if (protectedUntil) {
+    delete manualEditProtection[key];
+  }
+  return false;
+}
+
 // In-memory processed jobs store (persist to file/db for production)
 let processedJobs = new Set();
 const PROCESSED_STORE_PATH = path.join(__dirname, 'processed-jobs.json');
@@ -2885,6 +2906,12 @@ app.post('/api/assign-drivers-to-all', async (req, res) => {
           const updatesBySheet = {};
           for (const upd of updatesToPerform) {
             try {
+              // Skip if row is protected from auto-overwrite (recent manual edit)
+              if (isProtectedFromOverwrite(upd.sheetName, upd.rowIdx)) {
+                console.log(`⚡ Skipping auto-update for ${upd.sheetName} row ${upd.rowIdx} - protected from overwrite`);
+                continue;
+              }
+              
               // Ensure we know headers for the sheet
               if (!updatesBySheet[upd.sheetName]) {
                 const headerRes = await sheets.spreadsheets.values.get({
@@ -4405,13 +4432,40 @@ app.post('/api/assign-jobs-with-sequencing', async (req, res) => {
           let chosen = null;
           let reason = '';
           if (candidates.length > 0) {
+            // Enhanced load balancing: within same distance/region tier, distribute evenly
             candidates.sort((a, b) => {
+              // First priority: same region
               if (a.sameRegion && !b.sameRegion) return -1;
               if (!a.sameRegion && b.sameRegion) return 1;
+              
+              // Second priority: distance tiers
+              const aTier = a.dist <= 10 ? 1 : (a.dist <= 50 ? 2 : 3);
+              const bTier = b.dist <= 10 ? 1 : (b.dist <= 50 ? 2 : 3);
+              if (aTier !== bTier) return aTier - bTier;
+              
+              // Third priority: load balancing within same tier
               if (a.currentJobCount !== b.currentJobCount) return a.currentJobCount - b.currentJobCount;
+              
+              // Fourth priority: actual distance
               return (a.dist || Infinity) - (b.dist || Infinity);
             });
-            chosen = candidates[0];
+            
+            // For load balancing, pick from the least loaded candidates within the best tier
+            const bestTierSameRegion = candidates[0].sameRegion;
+            const bestDistanceTier = candidates[0].dist <= 10 ? 1 : (candidates[0].dist <= 50 ? 2 : 3);
+            const lowestJobCount = candidates[0].currentJobCount;
+            
+            // Get all candidates with the same best characteristics and lowest job count
+            const topCandidates = candidates.filter(c => 
+              c.sameRegion === bestTierSameRegion &&
+              (c.dist <= 10 ? 1 : (c.dist <= 50 ? 2 : 3)) === bestDistanceTier &&
+              c.currentJobCount === lowestJobCount
+            );
+            
+            // Round-robin selection within top candidates
+            const selectionIndex = Object.keys(currentDriverJobCounts).length % topCandidates.length;
+            chosen = topCandidates[selectionIndex] || topCandidates[0];
+            
             reason = chosen.sameRegion ? 'same-region' : (chosen.dist <= 10 ? 'within-10-miles' : (chosen.dist <= 50 ? 'within-50-miles' : (chosen.dist <= 100 ? 'within-100-miles' : 'no-distance-data')));
             if (chosen.sameRegion) assignmentStats.sameRegion++; else if (chosen.dist <= 10) assignmentStats.within10Miles++; else if (chosen.dist <= 50) assignmentStats.within50Miles++; else assignmentStats.nearestFallback++;
           }
@@ -4434,6 +4488,17 @@ app.post('/api/assign-jobs-with-sequencing', async (req, res) => {
           const nextOrderNo = (currentDriverJobCounts[assignedDriver] || 0) + 1;
           job.order_no = nextOrderNo;
           job.driver_order_sequence = nextOrderNo;
+          
+          // Ensure regions are set from postcodes if not already set
+          if (job.collection_postcode && !job.collection_region) {
+            const collectionInfo = await lookupRegionAsync(job.collection_postcode);
+            job.collection_region = collectionInfo?.region || 'UNKNOWN';
+          }
+          if (job.delivery_postcode && !job.delivery_region) {
+            const deliveryInfo = await lookupRegionAsync(job.delivery_postcode);
+            job.delivery_region = deliveryInfo?.region || 'UNKNOWN';
+          }
+          
           if (nextOrderNo === 1) { job.job_status = 'active'; job.job_active = 'true'; }
           else { job.job_status = 'pending'; job.job_active = 'false'; }
           currentDriverJobCounts[assignedDriver] = nextOrderNo;
@@ -4759,6 +4824,20 @@ app.post('/api/assign-job-to-driver', async (req, res) => {
     updateData[0][headers[driverColIdx]] = driverName;
     if (sequenceColIdx !== -1) updateData[0][headers[sequenceColIdx]] = nextSequence.toString();
     if (flagColIdx !== -1) updateData[0][headers[flagColIdx]] = forwardReturnFlag;
+
+    // Ensure regions are populated from postcodes
+    const collectionRegionIdx = headers.findIndex(h => h === 'collection_region');
+    const deliveryRegionIdx = headers.findIndex(h => h === 'delivery_region');
+    
+    if (collectionRegionIdx !== -1 && jobData.collection_postcode && !jobData.collection_region) {
+      const collectionInfo = await lookupRegionAsync(jobData.collection_postcode);
+      updateData[0][headers[collectionRegionIdx]] = collectionInfo?.region || 'UNKNOWN';
+    }
+    
+    if (deliveryRegionIdx !== -1 && jobData.delivery_postcode && !jobData.delivery_region) {
+      const deliveryInfo = await lookupRegionAsync(jobData.delivery_postcode);
+      updateData[0][headers[deliveryRegionIdx]] = deliveryInfo?.region || 'UNKNOWN';
+    }
 
     // Convert to row array
     const rowData = headers.map(header => updateData[0][header] || '');
@@ -5278,6 +5357,45 @@ app.get('/api/admin/drivers-tracking', authMiddleware, async (req, res) => {
 });
 
 // Serve React frontend in production
+// Manual edit protection endpoint
+app.post('/api/protect-manual-edit', (req, res) => {
+  try {
+    const { sheetName, rowIdx, durationMs = 5 * 60 * 1000 } = req.body;
+    
+    if (!sheetName || !rowIdx) {
+      return res.status(400).json({ error: 'sheetName and rowIdx are required' });
+    }
+
+    protectFromAutoOverwrite(sheetName, rowIdx, durationMs);
+    
+    res.json({ 
+      success: true, 
+      message: `Row ${rowIdx} in ${sheetName} protected for ${durationMs/1000} seconds`,
+      protectedUntil: new Date(Date.now() + durationMs).toISOString()
+    });
+  } catch (e) {
+    console.error('Manual edit protection error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get protection status endpoint
+app.get('/api/protection-status/:sheetName/:rowIdx', (req, res) => {
+  try {
+    const { sheetName, rowIdx } = req.params;
+    const isProtected = isProtectedFromOverwrite(sheetName, parseInt(rowIdx));
+    
+    res.json({ 
+      isProtected,
+      sheetName,
+      rowIdx: parseInt(rowIdx)
+    });
+  } catch (e) {
+    console.error('Protection status error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 if (process.env.NODE_ENV === 'production') {
   // Serve static files from the React build
   app.use(express.static(path.join(__dirname, '../frontend/build')));
