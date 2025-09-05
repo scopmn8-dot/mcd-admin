@@ -680,17 +680,6 @@ export default function Dashboard() {
               </Grid>
               <Grid xs={12} lg={3}>
                 <ModernActionButton
-                  title="Assign All Drivers"
-                  subtitle="Distribute jobs to drivers with intelligent sequencing"
-                  icon={<AssignmentIcon />}
-                  color="#8b5cf6"
-                  loading={assigningDrivers}
-                  onClick={handleAssignDrivers}
-                  disabled={activeTab === 3}
-                />
-              </Grid>
-              <Grid xs={12} lg={3}>
-                <ModernActionButton
                   title="Add New Job"
                   subtitle="Create a new delivery job with all required details"
                   icon={<AddIcon />}
