@@ -25,9 +25,10 @@ import {
   FilterList as FilterIcon,
   GetApp as ExportIcon,
   Visibility as ViewIcon,
+  Delete as DeleteIcon,
 } from "@mui/icons-material";
 
-export default function SheetTable({ title, columns, data }) {
+export default function SheetTable({ title, columns, data, onDeleteJob, allowDelete = false }) {
   const theme = useTheme();
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(0);
@@ -56,6 +57,26 @@ export default function SheetTable({ title, columns, data }) {
   const handleChangeRowsPerPage = (event) => {
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
+  };
+
+  const handleDeleteJob = async (job) => {
+    const jobId = job.job_id || job['Job Reference'];
+    if (!jobId) {
+      alert('❌ Cannot delete job: No job ID found');
+      return;
+    }
+
+    if (!window.confirm(`⚠️ Delete job "${jobId}"?\n\nThis action cannot be undone.`)) {
+      return;
+    }
+
+    if (onDeleteJob) {
+      try {
+        await onDeleteJob(jobId, title); // Pass job ID and sheet name
+      } catch (error) {
+        alert(`❌ Error deleting job: ${error.message}`);
+      }
+    }
   };
 
   const getStatusColor = (status) => {
@@ -284,6 +305,20 @@ export default function SheetTable({ title, columns, data }) {
                         </IconButton>
                       </span>
                     </Tooltip>
+                    {allowDelete && (row.job_id || row['Job Reference']) && (
+                      <Tooltip title="Delete Job">
+                        <span>
+                          <IconButton 
+                            size="small" 
+                            color="error"
+                            onClick={() => handleDeleteJob(row)}
+                            sx={{ ml: 0.5 }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

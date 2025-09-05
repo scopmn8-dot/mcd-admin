@@ -3196,9 +3196,10 @@ async function processJobCompletion(job_id, driver_name, markAsCompleted = true)
 
 console.log('📊 Automatic monitoring disabled - rate limiting enabled for manual operations');
 
-// API endpoint to clear all jobs data from all sheets
+// API endpoint to clear all jobs data from all sheets (requires PIN authentication)
 app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
   try {
+    const { pin } = req.body;
     const users = readUsers();
     const currentUser = users.find(u => u.id === req.user.id);
     
@@ -3207,6 +3208,17 @@ app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
+    // Validate PIN
+    const CLEAR_ALL_PIN = '200200';
+    if (!pin || pin.toString() !== CLEAR_ALL_PIN) {
+      console.log(`❌ Invalid PIN attempt for clear-all by user ${currentUser.username}: ${pin}`);
+      return res.status(401).json({ 
+        error: 'Invalid PIN. Enter the correct PIN to clear all jobs.',
+        pinRequired: true
+      });
+    }
+
+    console.log(`🔐 PIN verified for clear-all operation by user ${currentUser.username}`);
     console.log('🗑️ Clearing all jobs data from all sheets...');
     processStartTime = Date.now();
     processEndTime = null;
@@ -3297,6 +3309,166 @@ app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// API endpoint to delete individual job from sheet
+app.delete('/api/jobs/:jobId', authMiddleware, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { sheetName } = req.body;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+
+    console.log(`🗑️ Deleting job ${jobId} from sheet: ${sheetName || 'all sheets'}`);
+
+    // Apply rate limiting
+    if (!canMakeApiCall()) {
+      const resetTime = new Date(apiCallResetTime).toLocaleTimeString();
+      return res.status(429).json({ 
+        error: `Rate limit exceeded. Try again after ${resetTime}` 
+      });
+    }
+
+    let deletedFromSheets = [];
+    let totalDeleted = 0;
+    
+    // Define sheets to search
+    const sheetsToSearch = sheetName ? [sheetName] : [
+      SHEETS.motorway.name,
+      SHEETS.atmoves.name,
+      SHEETS.privateCustomers.name,
+      'Processed Jobs'
+    ];
+
+    for (const currentSheet of sheetsToSearch) {
+      try {
+        // Rate limiting check
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        }
+
+        // Get current data from sheet
+        const dataRange = `${currentSheet}!A:Z`;
+        console.log(`📊 Searching for job ${jobId} in ${currentSheet}`);
+        
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: dataRange,
+        });
+        incrementApiCall();
+
+        const rows = response.data.values || [];
+        if (rows.length <= 1) continue; // Skip if only headers or empty
+
+        const headers = rows[0];
+        const jobIdIndex = headers.findIndex(h => 
+          h && (h.toLowerCase().includes('job') && h.toLowerCase().includes('id')) || 
+          h.toLowerCase() === 'job_id'
+        );
+
+        if (jobIdIndex === -1) {
+          console.log(`⚠️ No job ID column found in ${currentSheet}`);
+          continue;
+        }
+
+        // Find rows to delete
+        const rowsToDelete = [];
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (row[jobIdIndex] && row[jobIdIndex].toString().trim() === jobId.toString().trim()) {
+            rowsToDelete.push(i + 1); // +1 because sheets are 1-indexed
+          }
+        }
+
+        if (rowsToDelete.length > 0) {
+          // Delete rows (start from the end to maintain indices)
+          for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+            const rowNumber = rowsToDelete[i];
+            
+            // Rate limiting check
+            if (!canMakeApiCall()) {
+              const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+              await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+            }
+
+            console.log(`🗑️ Deleting row ${rowNumber} from ${currentSheet}`);
+            
+            await sheets.spreadsheets.batchUpdate({
+              spreadsheetId: SHEET_ID,
+              resource: {
+                requests: [{
+                  deleteDimension: {
+                    range: {
+                      sheetId: await getSheetId(currentSheet),
+                      dimension: 'ROWS',
+                      startIndex: rowNumber - 1, // 0-indexed for API
+                      endIndex: rowNumber
+                    }
+                  }
+                }]
+              }
+            });
+            incrementApiCall();
+          }
+
+          deletedFromSheets.push({
+            sheetName: currentSheet,
+            rowsDeleted: rowsToDelete.length
+          });
+          totalDeleted += rowsToDelete.length;
+          
+          console.log(`✅ Deleted ${rowsToDelete.length} instances of job ${jobId} from ${currentSheet}`);
+        }
+
+      } catch (error) {
+        console.error(`❌ Error deleting job from ${currentSheet}:`, error.message);
+      }
+    }
+
+    // Clear cached data
+    cache.data = null;
+    cache.timestamp = 0;
+
+    if (totalDeleted > 0) {
+      res.json({
+        success: true,
+        message: `Successfully deleted job ${jobId}`,
+        jobId,
+        deletedFromSheets,
+        totalDeleted
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: `Job ${jobId} not found in any sheet`,
+        jobId,
+        sheetsSearched: sheetsToSearch
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error deleting job:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper function to get sheet ID by name
+async function getSheetId(sheetName) {
+  try {
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId: SHEET_ID
+    });
+    
+    const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
+    return sheet ? sheet.properties.sheetId : 0;
+  } catch (error) {
+    console.error('Error getting sheet ID:', error);
+    return 0; // Default to first sheet
+  }
+}
 
 // API endpoint to mark job as completed and activate next job for driver
 app.post('/api/jobs/complete', async (req, res) => {

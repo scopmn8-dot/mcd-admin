@@ -431,8 +431,15 @@ export default function Dashboard() {
   };
 
   const handleClearAllJobs = async () => {
+    // First confirmation
     if (!window.confirm('⚠️ WARNING: This will permanently delete ALL jobs from ALL sheets!\n\nThis action cannot be undone. Are you absolutely sure you want to continue?')) {
       return;
+    }
+
+    // PIN authentication
+    const pin = window.prompt('🔐 Enter PIN to confirm clear all jobs action:\n\n(This is a security measure to prevent accidental data loss)');
+    if (!pin) {
+      return; // User cancelled
     }
     
     setClearingJobs(true);
@@ -444,25 +451,54 @@ export default function Dashboard() {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({ pin })
       });
-      const contentType = res.headers.get("content-type");
+      
       if (!res.ok) {
-        if (contentType && contentType.includes("application/json")) {
-          const err = await res.json();
-          throw new Error(err.error || "Error clearing jobs");
-        } else {
-          const text = await res.text();
-          throw new Error(text);
+        const err = await res.json();
+        if (err.pinRequired) {
+          throw new Error('❌ Invalid PIN. Clear all operation cancelled for security.');
         }
+        throw new Error(err.error || "Error clearing jobs");
       }
+      
       const data = await res.json();
-      setClearJobsMsg(`Successfully cleared ${data.totalRowsCleared} jobs from ${data.sheetsCleared} sheets in ${data.timeSpent.toFixed(2)} seconds.`);
+      setClearJobsMsg(`✅ Successfully cleared ${data.totalRowsCleared} jobs from ${data.sheetsCleared} sheets in ${data.timeSpent.toFixed(2)} seconds.`);
       fetchAll(); // Refresh all data
     } catch (e) {
-      setClearJobsMsg(`Error: ${e.message}`);
+      setClearJobsMsg(`❌ ${e.message}`);
     } finally {
       setClearingJobs(false);
+    }
+  };
+
+  const handleDeleteJob = async (jobId, sheetName) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await apiFetch(`/api/jobs/${jobId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ sheetName })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to delete job');
+      }
+
+      const data = await res.json();
+      alert(`✅ ${data.message}\nDeleted from ${data.deletedFromSheets.length} sheet(s)`);
+      
+      // Refresh data
+      fetchAll();
+      
+    } catch (error) {
+      console.error('Error deleting job:', error);
+      throw error; // Re-throw so SheetTable can handle it
     }
   };
 
@@ -855,9 +891,11 @@ export default function Dashboard() {
               </Box>
               <Box sx={{ flexGrow: 1, overflow: 'auto', p: 3 }}>
                 <SheetTable 
-                  title="" 
+                  title={currentData.sheetName || ""} 
                   columns={columns} 
                   data={Array.isArray(currentData.data) ? currentData.data : []} 
+                  onDeleteJob={handleDeleteJob}
+                  allowDelete={true}
                 />
               </Box>
             </Box>
