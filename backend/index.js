@@ -4579,6 +4579,222 @@ app.post('/api/assign-jobs-with-sequencing', async (req, res) => {
   }
 });
 
+// Enhanced individual job assignment with 20-mile radius and routing logic
+app.post('/api/assign-job-to-driver', async (req, res) => {
+  try {
+    const { jobId, sourceSheet, driverName, manualOverride = false } = req.body;
+
+    if (!jobId || !sourceSheet || !driverName) {
+      return res.status(400).json({ error: 'Missing required parameters: jobId, sourceSheet, driverName' });
+    }
+
+    console.log(`🎯 Assigning job ${jobId} to driver ${driverName} (${manualOverride ? 'Manual Override' : 'Rule-Based'})`);
+
+    // 1. Fetch current data
+    const data = await getCachedData();
+    const drivers = await fetchDriversSheet();
+    
+    // Find the driver
+    const driver = drivers.find(d => d.name === driverName);
+    if (!driver) {
+      return res.status(404).json({ error: `Driver ${driverName} not found` });
+    }
+
+    // Find the job in the appropriate sheet
+    let jobData = null;
+    let sheetName = '';
+    
+    switch (sourceSheet) {
+      case 'motorway':
+        jobData = data.motorway.find(j => j.job_id === jobId);
+        sheetName = SHEETS.motorway.name;
+        break;
+      case 'atmoves':
+        jobData = data.atmoves.find(j => j.job_id === jobId);
+        sheetName = SHEETS.atmoves.name;
+        break;
+      case 'private-customers':
+        jobData = data.privateCustomers.find(j => j.job_id === jobId);
+        sheetName = SHEETS.privateCustomers.name;
+        break;
+      default:
+        return res.status(400).json({ error: 'Invalid sourceSheet. Must be: motorway, atmoves, or private-customers' });
+    }
+
+    if (!jobData) {
+      return res.status(404).json({ error: `Job ${jobId} not found in ${sourceSheet} sheet` });
+    }
+
+    // 2. Validate assignment rules (unless manual override)
+    if (!manualOverride) {
+      // Rule: Collection and delivery postcodes must exist
+      if (!jobData.collection_postcode || !jobData.delivery_postcode) {
+        return res.status(400).json({ 
+          error: 'Assignment failed: Collection and delivery postcodes are required for automatic assignment',
+          rule: 'POSTCODE_REQUIRED'
+        });
+      }
+
+      // Rule: 20-mile radius validation
+      const driverPostcode = driver.postcode || driver.driver_postcode || driver.base_postcode;
+      if (driverPostcode) {
+        try {
+          // Get coordinates for validation
+          await batchLookupRegions([
+            jobData.collection_postcode.trim().toUpperCase(),
+            jobData.delivery_postcode.trim().toUpperCase(),
+            driverPostcode.trim().toUpperCase()
+          ]);
+
+          const driverCoords = getLatLonForPostcode(driverPostcode.trim().toUpperCase());
+          const collectionCoords = getLatLonForPostcode(jobData.collection_postcode.trim().toUpperCase());
+          const deliveryCoords = getLatLonForPostcode(jobData.delivery_postcode.trim().toUpperCase());
+
+          if (driverCoords && collectionCoords) {
+            const distanceToCollection = calculateDistance(
+              driverCoords.lat, driverCoords.lon,
+              collectionCoords.lat, collectionCoords.lon
+            );
+
+            if (distanceToCollection > 20) {
+              return res.status(400).json({ 
+                error: `Assignment failed: Collection point is ${distanceToCollection.toFixed(1)} miles from driver (max 20 miles)`,
+                rule: '20_MILE_RADIUS',
+                distance: distanceToCollection
+              });
+            }
+          }
+
+          // Helper function for distance calculation
+          function getLatLonForPostcode(postcode) {
+            const cached = cacheService.get(postcode);
+            if (cached && cached.lat && cached.lon) {
+              return { lat: cached.lat, lon: cached.lon };
+            }
+            return null;
+          }
+
+          function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 3959; // Earth radius in miles
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                     Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+          }
+
+        } catch (err) {
+          console.warn('Distance validation failed:', err.message);
+          // Continue with assignment if validation fails
+        }
+      }
+    }
+
+    // 3. Determine forward/return flag using regional logic
+    let forwardReturnFlag = '';
+    if (jobData.collection_postcode && jobData.delivery_postcode) {
+      const driverRegion = driver.region?.toLowerCase();
+      const collectionRegion = getRegionForPostcode(jobData.collection_postcode)?.toLowerCase();
+      const deliveryRegion = getRegionForPostcode(jobData.delivery_postcode)?.toLowerCase();
+
+      if (driverRegion && collectionRegion && deliveryRegion) {
+        if (collectionRegion === driverRegion) {
+          // Check if there are return opportunities from delivery region back to driver region
+          const allJobs = [...data.motorway, ...data.atmoves, ...data.privateCustomers];
+          const returnOpportunities = allJobs.filter(j => 
+            j.job_id !== jobId && // Not the same job
+            !j.selected_driver && // Unassigned
+            getRegionForPostcode(j.collection_postcode)?.toLowerCase() === deliveryRegion &&
+            getRegionForPostcode(j.delivery_postcode)?.toLowerCase() === driverRegion
+          );
+
+          forwardReturnFlag = returnOpportunities.length > 0 ? 'Forward' : 'Forward';
+        } else if (deliveryRegion === driverRegion) {
+          forwardReturnFlag = 'Return';
+        }
+      }
+    }
+
+    // Helper function to get region from postcode
+    function getRegionForPostcode(postcode) {
+      if (!postcode) return null;
+      const cached = cacheService.get(postcode.trim().toUpperCase());
+      return cached?.region || null;
+    }
+
+    // 4. Get next sequence number for the driver
+    let nextSequence = 1;
+    const allJobs = [...data.motorway, ...data.atmoves, ...data.privateCustomers];
+    const driverJobs = allJobs.filter(j => j.selected_driver === driverName);
+    if (driverJobs.length > 0) {
+      const maxSequence = Math.max(...driverJobs.map(j => parseInt(j.driver_order_sequence) || 0));
+      nextSequence = maxSequence + 1;
+    }
+
+    // 5. Update the job in Google Sheets
+    const sheetData = sourceSheet === 'motorway' ? data.motorway : 
+                     sourceSheet === 'atmoves' ? data.atmoves : data.privateCustomers;
+    
+    const rowIdx = sheetData.findIndex(j => j.job_id === jobId);
+    if (rowIdx === -1) {
+      return res.status(404).json({ error: 'Job not found in sheet data' });
+    }
+
+    const actualRowIdx = rowIdx + 2; // Account for header row and 0-based indexing
+
+    // Find column indices
+    const headers = Object.keys(jobData);
+    const driverColIdx = headers.findIndex(h => h === 'selected_driver');
+    const sequenceColIdx = headers.findIndex(h => h === 'driver_order_sequence');
+    const flagColIdx = headers.findIndex(h => h === 'forward_return_flag');
+
+    if (driverColIdx === -1) {
+      return res.status(500).json({ error: 'selected_driver column not found' });
+    }
+
+    // Prepare update data
+    const updateData = [jobData];
+    updateData[0][headers[driverColIdx]] = driverName;
+    if (sequenceColIdx !== -1) updateData[0][headers[sequenceColIdx]] = nextSequence.toString();
+    if (flagColIdx !== -1) updateData[0][headers[flagColIdx]] = forwardReturnFlag;
+
+    // Convert to row array
+    const rowData = headers.map(header => updateData[0][header] || '');
+
+    // Update Google Sheets
+    const lastCol = String.fromCharCode(65 + headers.length - 1);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${sheetName}!A${actualRowIdx}:${lastCol}${actualRowIdx}`,
+      valueInputOption: 'USER_ENTERED',
+      resource: { values: [rowData] },
+    });
+
+    // Invalidate cache
+    cache.timestamp = 0;
+
+    console.log(`✅ Job ${jobId} assigned to ${driverName} with sequence ${nextSequence} and flag ${forwardReturnFlag}`);
+
+    res.json({
+      success: true,
+      message: `Job ${jobId} successfully assigned to ${driverName}`,
+      assignment: {
+        jobId,
+        driverName,
+        sequence: nextSequence,
+        forwardReturnFlag,
+        manualOverride
+      }
+    });
+
+  } catch (e) {
+    console.error('❌ Individual assignment error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // API to get all jobs with proper driver assignments and sequencing
 app.get('/api/jobs/all-assignments', async (req, res) => {
   try {

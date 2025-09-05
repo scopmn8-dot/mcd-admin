@@ -2,6 +2,7 @@ import { apiFetch } from './api';
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import Dashboard from "./pages/Dashboard";
 import Clustering from "./pages/Clustering";
+import Drivers from "./pages/Drivers";
 import ProcessedJobs from "./pages/ProcessedJobs";
 import BatchPlans from "./pages/BatchPlans";
 import Users from "./pages/Users";
@@ -41,6 +42,7 @@ import {
   Menu as MenuIcon,
   Dashboard as DashboardIcon,
   AccountTree as ClusteringIcon,
+  DirectionsCar as DriversIcon,
   Brightness4 as DarkModeIcon,
   Brightness7 as LightModeIcon,
   Settings as SettingsIcon,
@@ -363,6 +365,7 @@ function App() {
     {
       section: 'Team & Resources',
       items: [
+        { label: 'Drivers', icon: <DriversIcon />, index: 2, description: 'Driver management and assignments' },
         { label: 'Users', icon: <PeopleIcon />, index: 10, description: 'User account management' },
       ]
     }
@@ -445,6 +448,7 @@ function App() {
   const [lastAutoRun, setLastAutoRun] = useState(null);
   const [autoRunSteps, setAutoRunSteps] = useState({
     clustering: 'pending', // 'pending' | 'running' | 'success' | 'error'
+    assignDrivers: 'pending',
     assignIds: 'pending',
   });
   const autoRunRef = useRef(null);
@@ -453,7 +457,7 @@ function App() {
     if (autoRunRef.current?.running) return; // avoid overlapping runs
     autoRunRef.current = { running: true };
     setAutoRunStatus('running');
-  setAutoRunSteps({ clustering: 'running', assignIds: 'pending' });
+  setAutoRunSteps({ clustering: 'running', assignDrivers: 'pending', assignIds: 'pending' });
     try {
       // 1) Auto cluster & assign
   const clusterRes = await apiFetch('/api/auto-cluster-assign', { method: 'POST' });
@@ -462,9 +466,18 @@ function App() {
         setAutoRunSteps(prev => ({ ...prev, clustering: 'error' }));
         throw new Error(`cluster error: ${t}`);
       }
-      setAutoRunSteps(prev => ({ ...prev, clustering: 'success', assignIds: 'running' }));
+      setAutoRunSteps(prev => ({ ...prev, clustering: 'success', assignDrivers: 'running' }));
 
-      // 2) Auto-assign ids (job/cluster/order numbers)
+      // 2) Assign drivers with sequencing
+  const assignRes = await apiFetch('/api/assign-jobs-with-sequencing', { method: 'POST' });
+      if (!assignRes.ok) {
+        const t = await assignRes.text();
+        setAutoRunSteps(prev => ({ ...prev, assignDrivers: 'error' }));
+        throw new Error(`assign error: ${t}`);
+      }
+      setAutoRunSteps(prev => ({ ...prev, assignDrivers: 'success', assignIds: 'running' }));
+
+      // 3) Auto-assign ids (job/cluster/order numbers)
   const idsRes = await apiFetch('/api/jobs/auto-assign-ids', { method: 'POST' });
       if (!idsRes.ok) {
         const t = await idsRes.text();
@@ -521,6 +534,7 @@ function App() {
     switch (activeTab) {
       case 0: return <Dashboard />;
       case 1: return <Clustering />;
+      case 2: return <Drivers />;
       case 3: return <ProcessedJobs />;
       case 4: return <BatchPlans />;
       case 8: return <AIDataMapper />;
@@ -687,6 +701,7 @@ function App() {
                     </Box>
                     <Box sx={{ ml: 1, display: 'flex', gap: 1 }}>
                       <Chip label={autoRunSteps.clustering} size="small" color={autoRunSteps.clustering === 'running' ? 'info' : autoRunSteps.clustering === 'success' ? 'success' : autoRunSteps.clustering === 'error' ? 'error' : 'default'} />
+                      <Chip label={autoRunSteps.assignDrivers} size="small" color={autoRunSteps.assignDrivers === 'running' ? 'info' : autoRunSteps.assignDrivers === 'success' ? 'success' : autoRunSteps.assignDrivers === 'error' ? 'error' : 'default'} />
                       <Chip label={autoRunSteps.assignIds} size="small" color={autoRunSteps.assignIds === 'running' ? 'info' : autoRunSteps.assignIds === 'success' ? 'success' : autoRunSteps.assignIds === 'error' ? 'error' : 'default'} />
                     </Box>
                   </Box>

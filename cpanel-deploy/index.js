@@ -245,6 +245,7 @@ import cors from 'cors';
 import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
+import multer from 'multer';
 
 
 const app = express();
@@ -297,12 +298,69 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy', 
+  const diagnostics = {
+    status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    version: '1.0.3'
-  });
+    version: '1.0.3',
+    environment: process.env.NODE_ENV || 'development',
+    credentials: {
+      source: process.env.GOOGLE_CLIENT_EMAIL ? 'environment_variables' : 'file',
+      clientEmail: process.env.GOOGLE_CLIENT_EMAIL || 'using_file',
+      privateKeyAvailable: !!process.env.GOOGLE_PRIVATE_KEY,
+      privateKeyLength: process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.length : 0,
+      privateKeyStart: process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.substring(0, 50) : 'using_file'
+    },
+    jwt: {
+      secretAvailable: !!process.env.JWT_SECRET,
+      secretLength: process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 0
+    },
+    rateLimiting: {
+      enabled: true,
+      apiLimit: API_RATE_LIMIT,
+      windowMs: RATE_LIMIT_WINDOW,
+      cacheTtlMs: CACHE_TTL,
+      currentCalls: apiCallCount,
+      resetTime: new Date(apiCallResetTime).toISOString()
+    }
+  };
+  
+  res.status(200).json(diagnostics);
+});
+
+// Test Google Sheets connection endpoint
+app.get('/api/test-sheets', async (req, res) => {
+  try {
+    console.log('🧪 Testing Google Sheets connection...');
+    const testAuth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: SCOPES,
+    });
+    const client = await testAuth.getClient();
+    console.log('✅ Google Auth client created successfully');
+    
+    // Try a simple spreadsheet metadata call
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const meta = await sheets.spreadsheets.get({ 
+      spreadsheetId: SHEET_ID,
+      fields: 'properties.title'
+    });
+    
+    res.json({
+      success: true,
+      message: 'Google Sheets connection successful',
+      spreadsheetTitle: meta.data.properties?.title || 'Unknown',
+      credentialsSource: process.env.GOOGLE_CLIENT_EMAIL ? 'environment' : 'file'
+    });
+  } catch (error) {
+    console.error('❌ Google Sheets test failed:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code,
+      credentialsSource: process.env.GOOGLE_CLIENT_EMAIL ? 'environment' : 'file'
+    });
+  }
 });
 
 // Configure CORS: allow comma-separated origins via CORS_ORIGIN env, defaults to '*'
@@ -367,6 +425,34 @@ function writeUsers(users) {
   fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2), 'utf8');
 }
 
+// Initialize default admin user if no users exist
+async function initializeAdminUser() {
+  try {
+    const users = readUsers();
+    if (users.length === 0) {
+      console.log('🔧 No users found, creating default admin user...');
+      const adminPasswordHash = await bcrypt.hash('admin', 10);
+      const adminUser = {
+        id: generateId('USR'),
+        username: 'admin',
+        passwordHash: adminPasswordHash,
+        role: 'admin',
+        createdAt: new Date().toISOString()
+      };
+      users.push(adminUser);
+      writeUsers(users);
+      console.log('✅ Default admin user created (username: admin, password: admin)');
+    } else {
+      console.log(`📊 Found ${users.length} existing user(s)`);
+    }
+  } catch (error) {
+    console.error('❌ Error initializing admin user:', error.message);
+  }
+}
+
+// Initialize admin user on startup
+initializeAdminUser();
+
 // Register user
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -410,6 +496,36 @@ app.get('/api/auth/verify', authMiddleware, async (req, res) => {
     const user = users.find(u => u.id === req.user.id);
     if (!user) return res.status(401).json({ error: 'user not found' });
     res.json({ user: { id: user.id, username: user.username } });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Force create admin user (for development/testing)
+app.post('/api/auth/force-admin', async (req, res) => {
+  try {
+    const users = readUsers();
+    // Remove existing admin user if it exists
+    const filteredUsers = users.filter(u => u.username !== 'admin');
+    
+    // Create new admin user
+    const adminPasswordHash = await bcrypt.hash('admin', 10);
+    const adminUser = {
+      id: generateId('USR'),
+      username: 'admin',
+      passwordHash: adminPasswordHash,
+      role: 'admin',
+      createdAt: new Date().toISOString()
+    };
+    
+    filteredUsers.push(adminUser);
+    writeUsers(filteredUsers);
+    
+    res.json({ 
+      success: true, 
+      message: 'Admin user created/updated',
+      credentials: { username: 'admin', password: 'admin' }
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -620,12 +736,24 @@ function authMiddleware(req, res, next) {
 const CREDENTIALS_PATH = path.join(__dirname, 'google-credentials.json');
 let credentials;
 if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+  console.log('✅ Using environment variable credentials');
+  console.log('📧 Client email:', process.env.GOOGLE_CLIENT_EMAIL);
+  console.log('🔑 Private key available:', !!process.env.GOOGLE_PRIVATE_KEY);
+  console.log('🔑 Private key starts with:', process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.substring(0, 30) : 'N/A');
+  
   credentials = {
+    type: 'service_account',
+    project_id: 'mcdplan',
     client_email: process.env.GOOGLE_CLIENT_EMAIL,
-    // Support newline-escaped secrets
-    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    // Support newline-escaped secrets and ensure proper formatting
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+    token_uri: 'https://oauth2.googleapis.com/token',
+    auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+    client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${encodeURIComponent(process.env.GOOGLE_CLIENT_EMAIL)}`
   };
 } else {
+  console.log('📁 Using file-based credentials');
   credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
 }
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
@@ -668,6 +796,14 @@ function canMakeApiCall() {
 
 function incrementApiCall() {
   apiCallCount++;
+}
+
+// Helper function to invalidate cache and log the reason
+function invalidateCache(reason = 'Data modified') {
+  const oldTimestamp = cache.timestamp;
+  cache.timestamp = 0;
+  cache.data = null;
+  console.log(`🗑️ Cache invalidated: ${reason} (was ${oldTimestamp > 0 ? Math.floor((Date.now() - oldTimestamp) / 1000) + 's old' : 'empty'})`);
 }
 
 // In-memory processed jobs store (persist to file/db for production)
@@ -789,15 +925,30 @@ app.get('/api/drivers', async (req, res) => {
   }
 });
 
-async function getCachedData() {
+async function getCachedData(forceRefresh = false) {
   const now = Date.now();
-  if (!cache.data || now - cache.timestamp > CACHE_TTL) {
-    console.log(`🔄 Cache expired, fetching fresh data. API calls this minute: ${apiCallCount}/${API_RATE_LIMIT}`);
-    cache.data = await batchFetchSheets();
-    cache.timestamp = now;
+  
+  // Check if we should force refresh or cache is expired
+  if (forceRefresh || !cache.data || now - cache.timestamp > CACHE_TTL) {
+    console.log(`🔄 ${forceRefresh ? 'Force refreshing' : 'Cache expired, fetching fresh'} data. API calls this minute: ${apiCallCount}/${API_RATE_LIMIT}`);
+    
+    try {
+      cache.data = await batchFetchSheets();
+      cache.timestamp = now;
+      console.log(`✅ Cache updated successfully. Total jobs: ${cache.data.motorway.length + cache.data.atmoves.length + cache.data.privateCustomers.length}`);
+    } catch (error) {
+      console.error('❌ Error fetching fresh data:', error);
+      // If we have stale cache data and fetch fails, return it with a warning
+      if (cache.data) {
+        console.log('⚠️ Using stale cache data due to fetch error');
+        return cache.data;
+      }
+      throw error;
+    }
   } else {
     console.log(`📋 Using cached data (${Math.ceil((CACHE_TTL - (now - cache.timestamp)) / 1000)}s remaining)`);
   }
+  
   return cache.data;
 }
 
@@ -815,6 +966,48 @@ app.get('/api/rate-limit-status', (req, res) => {
     cacheTTL: Math.floor(CACHE_TTL / 1000),
     cacheValid: cache.data && (now - cache.timestamp < CACHE_TTL)
   });
+});
+
+// API endpoint to force refresh cached data from Google Sheets
+app.post('/api/refresh-cache', authMiddleware, async (req, res) => {
+  try {
+    console.log('🔄 Force refreshing cache from Google Sheets...');
+    
+    // Check if we can make API calls (rate limiting)
+    if (!canMakeApiCall()) {
+      const resetTime = new Date(apiCallResetTime + RATE_LIMIT_WINDOW).toLocaleTimeString();
+      return res.status(429).json({ 
+        error: `Rate limit exceeded. Please try again after ${resetTime}`,
+        remainingCalls: Math.max(0, API_RATE_LIMIT - apiCallCount),
+        resetTime: resetTime
+      });
+    }
+
+    // Force cache invalidation and fetch fresh data
+    const freshData = await getCachedData(true); // Force refresh
+    
+    const totalJobs = freshData.motorway.length + freshData.atmoves.length + freshData.privateCustomers.length;
+    
+    console.log(`✅ Cache refreshed successfully. Total jobs: ${totalJobs}`);
+    
+    res.json({
+      success: true,
+      message: `Data refreshed successfully from Google Sheets`,
+      totalJobs: totalJobs,
+      motorwayJobs: freshData.motorway.length,
+      atmovesJobs: freshData.atmoves.length,
+      privateCustomerJobs: freshData.privateCustomers.length,
+      refreshedAt: new Date().toISOString(),
+      apiCallsRemaining: Math.max(0, API_RATE_LIMIT - apiCallCount)
+    });
+    
+  } catch (error) {
+    console.error('❌ Error refreshing cache:', error);
+    res.status(500).json({ 
+      error: error.message || 'Failed to refresh data from Google Sheets',
+      apiCallsRemaining: Math.max(0, API_RATE_LIMIT - apiCallCount)
+    });
+  }
 });
 
 // Helper to get column letter from index (0-based)
@@ -1050,8 +1243,18 @@ async function ensureProcessedSheetExists() {
 async function writeCombinedJobsSheet() {
   const sheetName = 'Combined Jobs';
   try {
+    // Rate limiting for metadata check
+    if (!canMakeApiCall()) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+      console.log(`⏳ Rate limit reached, waiting ${waitTime}s before getting metadata...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+    }
+    
     // Get spreadsheet metadata to check existing sheets
+    console.log(`📊 Making API call for metadata (${apiCallCount + 1}/${API_RATE_LIMIT})`);
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    incrementApiCall();
+    
     const existing = (meta.data.sheets || []).find(s => s.properties && s.properties.title === sheetName);
 
     // Source sheets to combine
@@ -1062,7 +1265,17 @@ async function writeCombinedJobsSheet() {
     const allHeaderSet = new Set();
     for (const src of sourceSheets) {
       try {
+        // Rate limiting for header fetch
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s before getting headers for ${src}...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        }
+        
+        console.log(`📊 Making API call for ${src} headers (${apiCallCount + 1}/${API_RATE_LIMIT})`);
         const hr = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${src}!1:1` });
+        incrementApiCall();
+        
         const hs = (hr.data.values && hr.data.values[0]) ? hr.data.values[0] : [];
         headersBySheet[src] = hs;
         hs.forEach(h => { if (h) allHeaderSet.add(h); });
@@ -1079,25 +1292,73 @@ async function writeCombinedJobsSheet() {
     // Create sheet if missing
     if (!existing) {
       console.log(`'${sheetName}' not found. Creating sheet with headers.`);
+      
+      // Rate limiting for batchUpdate
+      if (!canMakeApiCall()) {
+        const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+        console.log(`⏳ Rate limit reached, waiting ${waitTime}s before creating sheet...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+      }
+      
+      console.log(`📊 Making API call for sheet creation (${apiCallCount + 1}/${API_RATE_LIMIT})`);
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: SHEET_ID,
         resource: { requests: [{ addSheet: { properties: { title: sheetName, gridProperties: { rowCount: 5000, columnCount: Math.max(10, headers.length) } } } }] }
       });
+      incrementApiCall();
+      
+      // Rate limiting for header update
+      if (!canMakeApiCall()) {
+        const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+        console.log(`⏳ Rate limit reached, waiting ${waitTime}s before updating headers...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+      }
+      
+      console.log(`📊 Making API call for header update (${apiCallCount + 1}/${API_RATE_LIMIT})`);
       await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${sheetName}!A1:${colLetter(headers.length - 1)}1`, valueInputOption: 'USER_ENTERED', resource: { values: [headers] } });
+      incrementApiCall();
     } else {
+      // Rate limiting for existing header check
+      if (!canMakeApiCall()) {
+        const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+        console.log(`⏳ Rate limit reached, waiting ${waitTime}s before checking existing headers...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+      }
+      
       // Ensure header row contains our union headers
+      console.log(`📊 Making API call for existing headers (${apiCallCount + 1}/${API_RATE_LIMIT})`);
       const hr = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${sheetName}!1:1` });
+      incrementApiCall();
+      
       let existingHeaders = (hr.data.values && hr.data.values[0]) ? hr.data.values[0] : [];
       const missing = headers.filter(h => !existingHeaders.includes(h));
       if (missing.length > 0 || existingHeaders.length !== headers.length) {
+        // Rate limiting for header update
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s before updating headers...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        }
+        
         // Use the union order (headers) and write the header row
+        console.log(`📊 Making API call for header update (${apiCallCount + 1}/${API_RATE_LIMIT})`);
         await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${sheetName}!A1:${colLetter(headers.length - 1)}1`, valueInputOption: 'USER_ENTERED', resource: { values: [headers] } });
+        incrementApiCall();
       }
+    }
+
+    // Rate limiting for batch read
+    if (!canMakeApiCall()) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+      console.log(`⏳ Rate limit reached, waiting ${waitTime}s before batch read...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
     }
 
     // Read rows from each source sheet (from row 2 onwards)
     const ranges = sourceSheets.map(s => `${s}!A2:AZ10000`);
+    console.log(`📊 Making API call for batch read (${apiCallCount + 1}/${API_RATE_LIMIT})`);
     const batch = await sheets.spreadsheets.values.batchGet({ spreadsheetId: SHEET_ID, ranges });
+    incrementApiCall();
     const valueRanges = batch.data.valueRanges || [];
 
     const rows = [];
@@ -1120,13 +1381,23 @@ async function writeCombinedJobsSheet() {
       }
     }
 
+    // Rate limiting for final write
+    if (!canMakeApiCall()) {
+      const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+      console.log(`⏳ Rate limit reached, waiting ${waitTime}s before final write...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+    }
+
     // Write all data (replace) under the header
     const allValues = [headers].concat(rows);
     const lastRow = allValues.length;
     const lastColLetter = colLetter(headers.length - 1);
     const writeRange = `${sheetName}!A1:${lastColLetter}${Math.max(1, lastRow)}`;
     console.log(`Writing ${rows.length} combined rows to '${sheetName}' (range ${writeRange})`);
+    console.log(`📊 Making API call for final write (${apiCallCount + 1}/${API_RATE_LIMIT})`);
     await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: writeRange, valueInputOption: 'USER_ENTERED', resource: { values: allValues } });
+    incrementApiCall();
+    
     cache.timestamp = 0;
     console.log(`Combined Jobs sheet updated with ${rows.length} rows.`);
   } catch (err) {
@@ -2979,19 +3250,22 @@ async function processJobCompletion(job_id, driver_name, markAsCompleted = true)
   }
 }
 
-// Start monitoring sheets every 30 seconds automatically
-console.log('🔄 Starting automatic sheet monitoring every 30 seconds...');
-setInterval(monitorSheetChanges, 30000);
+// Temporarily disabled automatic monitoring to avoid quota issues
+// console.log('🔄 Starting automatic sheet monitoring every 30 seconds...');
+// setInterval(monitorSheetChanges, 30000);
 
 // Run initial check after 5 seconds to allow server to fully start
-setTimeout(() => {
-  console.log('🚀 Running initial sheet monitoring check...');
-  monitorSheetChanges();
-}, 5000);
+// setTimeout(() => {
+//   console.log('🚀 Running initial sheet monitoring check...');
+//   monitorSheetChanges();
+// }, 5000);
 
-// API endpoint to clear all jobs data from all sheets
+console.log('📊 Automatic monitoring disabled - rate limiting enabled for manual operations');
+
+// API endpoint to clear all jobs data from all sheets (requires PIN authentication)
 app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
   try {
+    const { pin } = req.body;
     const users = readUsers();
     const currentUser = users.find(u => u.id === req.user.id);
     
@@ -3000,6 +3274,17 @@ app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
+    // Validate PIN
+    const CLEAR_ALL_PIN = '200200';
+    if (!pin || pin.toString() !== CLEAR_ALL_PIN) {
+      console.log(`❌ Invalid PIN attempt for clear-all by user ${currentUser.username}: ${pin}`);
+      return res.status(401).json({ 
+        error: 'Invalid PIN. Enter the correct PIN to clear all jobs.',
+        pinRequired: true
+      });
+    }
+
+    console.log(`🔐 PIN verified for clear-all operation by user ${currentUser.username}`);
     console.log('🗑️ Clearing all jobs data from all sheets...');
     processStartTime = Date.now();
     processEndTime = null;
@@ -3090,6 +3375,166 @@ app.post('/api/jobs/clear-all', authMiddleware, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// API endpoint to delete individual job from sheet
+app.delete('/api/jobs/:jobId', authMiddleware, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { sheetName } = req.body;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+
+    console.log(`🗑️ Deleting job ${jobId} from sheet: ${sheetName || 'all sheets'}`);
+
+    // Apply rate limiting
+    if (!canMakeApiCall()) {
+      const resetTime = new Date(apiCallResetTime).toLocaleTimeString();
+      return res.status(429).json({ 
+        error: `Rate limit exceeded. Try again after ${resetTime}` 
+      });
+    }
+
+    let deletedFromSheets = [];
+    let totalDeleted = 0;
+    
+    // Define sheets to search
+    const sheetsToSearch = sheetName ? [sheetName] : [
+      SHEETS.motorway.name,
+      SHEETS.atmoves.name,
+      SHEETS.privateCustomers.name,
+      'Processed Jobs'
+    ];
+
+    for (const currentSheet of sheetsToSearch) {
+      try {
+        // Rate limiting check
+        if (!canMakeApiCall()) {
+          const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+          console.log(`⏳ Rate limit reached, waiting ${waitTime}s...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        }
+
+        // Get current data from sheet
+        const dataRange = `${currentSheet}!A:Z`;
+        console.log(`📊 Searching for job ${jobId} in ${currentSheet}`);
+        
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: dataRange,
+        });
+        incrementApiCall();
+
+        const rows = response.data.values || [];
+        if (rows.length <= 1) continue; // Skip if only headers or empty
+
+        const headers = rows[0];
+        const jobIdIndex = headers.findIndex(h => 
+          h && (h.toLowerCase().includes('job') && h.toLowerCase().includes('id')) || 
+          h.toLowerCase() === 'job_id'
+        );
+
+        if (jobIdIndex === -1) {
+          console.log(`⚠️ No job ID column found in ${currentSheet}`);
+          continue;
+        }
+
+        // Find rows to delete
+        const rowsToDelete = [];
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (row[jobIdIndex] && row[jobIdIndex].toString().trim() === jobId.toString().trim()) {
+            rowsToDelete.push(i + 1); // +1 because sheets are 1-indexed
+          }
+        }
+
+        if (rowsToDelete.length > 0) {
+          // Delete rows (start from the end to maintain indices)
+          for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+            const rowNumber = rowsToDelete[i];
+            
+            // Rate limiting check
+            if (!canMakeApiCall()) {
+              const waitTime = Math.ceil((RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime)) / 1000);
+              await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+            }
+
+            console.log(`🗑️ Deleting row ${rowNumber} from ${currentSheet}`);
+            
+            await sheets.spreadsheets.batchUpdate({
+              spreadsheetId: SHEET_ID,
+              resource: {
+                requests: [{
+                  deleteDimension: {
+                    range: {
+                      sheetId: await getSheetId(currentSheet),
+                      dimension: 'ROWS',
+                      startIndex: rowNumber - 1, // 0-indexed for API
+                      endIndex: rowNumber
+                    }
+                  }
+                }]
+              }
+            });
+            incrementApiCall();
+          }
+
+          deletedFromSheets.push({
+            sheetName: currentSheet,
+            rowsDeleted: rowsToDelete.length
+          });
+          totalDeleted += rowsToDelete.length;
+          
+          console.log(`✅ Deleted ${rowsToDelete.length} instances of job ${jobId} from ${currentSheet}`);
+        }
+
+      } catch (error) {
+        console.error(`❌ Error deleting job from ${currentSheet}:`, error.message);
+      }
+    }
+
+    // Clear cached data
+    cache.data = null;
+    cache.timestamp = 0;
+
+    if (totalDeleted > 0) {
+      res.json({
+        success: true,
+        message: `Successfully deleted job ${jobId}`,
+        jobId,
+        deletedFromSheets,
+        totalDeleted
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: `Job ${jobId} not found in any sheet`,
+        jobId,
+        sheetsSearched: sheetsToSearch
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error deleting job:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper function to get sheet ID by name
+async function getSheetId(sheetName) {
+  try {
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId: SHEET_ID
+    });
+    
+    const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
+    return sheet ? sheet.properties.sheetId : 0;
+  } catch (error) {
+    console.error('Error getting sheet ID:', error);
+    return 0; // Default to first sheet
+  }
+}
 
 // API endpoint to mark job as completed and activate next job for driver
 app.post('/api/jobs/complete', async (req, res) => {
@@ -4134,6 +4579,222 @@ app.post('/api/assign-jobs-with-sequencing', async (req, res) => {
   }
 });
 
+// Enhanced individual job assignment with 20-mile radius and routing logic
+app.post('/api/assign-job-to-driver', async (req, res) => {
+  try {
+    const { jobId, sourceSheet, driverName, manualOverride = false } = req.body;
+
+    if (!jobId || !sourceSheet || !driverName) {
+      return res.status(400).json({ error: 'Missing required parameters: jobId, sourceSheet, driverName' });
+    }
+
+    console.log(`🎯 Assigning job ${jobId} to driver ${driverName} (${manualOverride ? 'Manual Override' : 'Rule-Based'})`);
+
+    // 1. Fetch current data
+    const data = await getCachedData();
+    const drivers = await fetchDriversSheet();
+    
+    // Find the driver
+    const driver = drivers.find(d => d.name === driverName);
+    if (!driver) {
+      return res.status(404).json({ error: `Driver ${driverName} not found` });
+    }
+
+    // Find the job in the appropriate sheet
+    let jobData = null;
+    let sheetName = '';
+    
+    switch (sourceSheet) {
+      case 'motorway':
+        jobData = data.motorway.find(j => j.job_id === jobId);
+        sheetName = SHEETS.motorway.name;
+        break;
+      case 'atmoves':
+        jobData = data.atmoves.find(j => j.job_id === jobId);
+        sheetName = SHEETS.atmoves.name;
+        break;
+      case 'private-customers':
+        jobData = data.privateCustomers.find(j => j.job_id === jobId);
+        sheetName = SHEETS.privateCustomers.name;
+        break;
+      default:
+        return res.status(400).json({ error: 'Invalid sourceSheet. Must be: motorway, atmoves, or private-customers' });
+    }
+
+    if (!jobData) {
+      return res.status(404).json({ error: `Job ${jobId} not found in ${sourceSheet} sheet` });
+    }
+
+    // 2. Validate assignment rules (unless manual override)
+    if (!manualOverride) {
+      // Rule: Collection and delivery postcodes must exist
+      if (!jobData.collection_postcode || !jobData.delivery_postcode) {
+        return res.status(400).json({ 
+          error: 'Assignment failed: Collection and delivery postcodes are required for automatic assignment',
+          rule: 'POSTCODE_REQUIRED'
+        });
+      }
+
+      // Rule: 20-mile radius validation
+      const driverPostcode = driver.postcode || driver.driver_postcode || driver.base_postcode;
+      if (driverPostcode) {
+        try {
+          // Get coordinates for validation
+          await batchLookupRegions([
+            jobData.collection_postcode.trim().toUpperCase(),
+            jobData.delivery_postcode.trim().toUpperCase(),
+            driverPostcode.trim().toUpperCase()
+          ]);
+
+          const driverCoords = getLatLonForPostcode(driverPostcode.trim().toUpperCase());
+          const collectionCoords = getLatLonForPostcode(jobData.collection_postcode.trim().toUpperCase());
+          const deliveryCoords = getLatLonForPostcode(jobData.delivery_postcode.trim().toUpperCase());
+
+          if (driverCoords && collectionCoords) {
+            const distanceToCollection = calculateDistance(
+              driverCoords.lat, driverCoords.lon,
+              collectionCoords.lat, collectionCoords.lon
+            );
+
+            if (distanceToCollection > 20) {
+              return res.status(400).json({ 
+                error: `Assignment failed: Collection point is ${distanceToCollection.toFixed(1)} miles from driver (max 20 miles)`,
+                rule: '20_MILE_RADIUS',
+                distance: distanceToCollection
+              });
+            }
+          }
+
+          // Helper function for distance calculation
+          function getLatLonForPostcode(postcode) {
+            const cached = cacheService.get(postcode);
+            if (cached && cached.lat && cached.lon) {
+              return { lat: cached.lat, lon: cached.lon };
+            }
+            return null;
+          }
+
+          function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 3959; // Earth radius in miles
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                     Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+          }
+
+        } catch (err) {
+          console.warn('Distance validation failed:', err.message);
+          // Continue with assignment if validation fails
+        }
+      }
+    }
+
+    // 3. Determine forward/return flag using regional logic
+    let forwardReturnFlag = '';
+    if (jobData.collection_postcode && jobData.delivery_postcode) {
+      const driverRegion = driver.region?.toLowerCase();
+      const collectionRegion = getRegionForPostcode(jobData.collection_postcode)?.toLowerCase();
+      const deliveryRegion = getRegionForPostcode(jobData.delivery_postcode)?.toLowerCase();
+
+      if (driverRegion && collectionRegion && deliveryRegion) {
+        if (collectionRegion === driverRegion) {
+          // Check if there are return opportunities from delivery region back to driver region
+          const allJobs = [...data.motorway, ...data.atmoves, ...data.privateCustomers];
+          const returnOpportunities = allJobs.filter(j => 
+            j.job_id !== jobId && // Not the same job
+            !j.selected_driver && // Unassigned
+            getRegionForPostcode(j.collection_postcode)?.toLowerCase() === deliveryRegion &&
+            getRegionForPostcode(j.delivery_postcode)?.toLowerCase() === driverRegion
+          );
+
+          forwardReturnFlag = returnOpportunities.length > 0 ? 'Forward' : 'Forward';
+        } else if (deliveryRegion === driverRegion) {
+          forwardReturnFlag = 'Return';
+        }
+      }
+    }
+
+    // Helper function to get region from postcode
+    function getRegionForPostcode(postcode) {
+      if (!postcode) return null;
+      const cached = cacheService.get(postcode.trim().toUpperCase());
+      return cached?.region || null;
+    }
+
+    // 4. Get next sequence number for the driver
+    let nextSequence = 1;
+    const allJobs = [...data.motorway, ...data.atmoves, ...data.privateCustomers];
+    const driverJobs = allJobs.filter(j => j.selected_driver === driverName);
+    if (driverJobs.length > 0) {
+      const maxSequence = Math.max(...driverJobs.map(j => parseInt(j.driver_order_sequence) || 0));
+      nextSequence = maxSequence + 1;
+    }
+
+    // 5. Update the job in Google Sheets
+    const sheetData = sourceSheet === 'motorway' ? data.motorway : 
+                     sourceSheet === 'atmoves' ? data.atmoves : data.privateCustomers;
+    
+    const rowIdx = sheetData.findIndex(j => j.job_id === jobId);
+    if (rowIdx === -1) {
+      return res.status(404).json({ error: 'Job not found in sheet data' });
+    }
+
+    const actualRowIdx = rowIdx + 2; // Account for header row and 0-based indexing
+
+    // Find column indices
+    const headers = Object.keys(jobData);
+    const driverColIdx = headers.findIndex(h => h === 'selected_driver');
+    const sequenceColIdx = headers.findIndex(h => h === 'driver_order_sequence');
+    const flagColIdx = headers.findIndex(h => h === 'forward_return_flag');
+
+    if (driverColIdx === -1) {
+      return res.status(500).json({ error: 'selected_driver column not found' });
+    }
+
+    // Prepare update data
+    const updateData = [jobData];
+    updateData[0][headers[driverColIdx]] = driverName;
+    if (sequenceColIdx !== -1) updateData[0][headers[sequenceColIdx]] = nextSequence.toString();
+    if (flagColIdx !== -1) updateData[0][headers[flagColIdx]] = forwardReturnFlag;
+
+    // Convert to row array
+    const rowData = headers.map(header => updateData[0][header] || '');
+
+    // Update Google Sheets
+    const lastCol = String.fromCharCode(65 + headers.length - 1);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${sheetName}!A${actualRowIdx}:${lastCol}${actualRowIdx}`,
+      valueInputOption: 'USER_ENTERED',
+      resource: { values: [rowData] },
+    });
+
+    // Invalidate cache
+    cache.timestamp = 0;
+
+    console.log(`✅ Job ${jobId} assigned to ${driverName} with sequence ${nextSequence} and flag ${forwardReturnFlag}`);
+
+    res.json({
+      success: true,
+      message: `Job ${jobId} successfully assigned to ${driverName}`,
+      assignment: {
+        jobId,
+        driverName,
+        sequence: nextSequence,
+        forwardReturnFlag,
+        manualOverride
+      }
+    });
+
+  } catch (e) {
+    console.error('❌ Individual assignment error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // API to get all jobs with proper driver assignments and sequencing
 app.get('/api/jobs/all-assignments', async (req, res) => {
   try {
@@ -4328,6 +4989,294 @@ app.post('/api/jobs/enforce-sequencing', async (req, res) => {
   }
 });
 
+// Driver Authentication and GPS Tracking Endpoints
+
+// Driver locations storage (in production, use a proper database)
+let driverLocations = {};
+let driverSessions = {};
+
+// Driver login endpoint
+app.post('/api/driver/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    // Get drivers from Google Sheets
+    const driversData = await getCachedData('Drivers', () => 
+      sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Drivers!A:Z',
+      })
+    );
+
+    if (!driversData || !driversData.values) {
+      return res.status(500).json({ error: 'Unable to fetch drivers data' });
+    }
+
+    const [headers, ...rows] = driversData.values;
+    const drivers = rows.map(row => {
+      const driver = {};
+      headers.forEach((header, index) => {
+        driver[header.toLowerCase().replace(/\s+/g, '_')] = row[index] || '';
+      });
+      return driver;
+    });
+
+    // Find driver by username (could be driver ID, email, or name)
+    const driver = drivers.find(d => 
+      d.driver_id === username || 
+      d.email === username || 
+      d.name?.toLowerCase() === username.toLowerCase()
+    );
+
+    if (!driver) {
+      return res.status(401).json({ error: 'Driver not found' });
+    }
+
+    // Simple password check (in production, use proper hashing)
+    // For demo, use driver_id as password or a default password
+    const validPassword = password === driver.driver_id || 
+                         password === 'driver123' || 
+                         password === driver.password;
+
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+
+    // Generate session token
+    const token = Buffer.from(`${driver.driver_id}:${Date.now()}`).toString('base64');
+    
+    // Store session
+    driverSessions[token] = {
+      driverId: driver.driver_id,
+      name: driver.name,
+      email: driver.email,
+      loginTime: new Date().toISOString()
+    };
+
+    res.json({
+      token,
+      driver: {
+        id: driver.driver_id,
+        name: driver.name,
+        email: driver.email,
+        phone: driver.phone
+      }
+    });
+
+  } catch (error) {
+    console.error('Driver login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Get driver's assigned jobs
+app.get('/api/driver/jobs/:driverId', async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const session = driverSessions[token];
+    
+    if (!session || session.driverId !== driverId) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    // Get jobs from Google Sheets
+    const jobsData = await getCachedData('Jobs', () => 
+      sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Jobs!A:Z',
+      })
+    );
+
+    if (!jobsData || !jobsData.values) {
+      return res.json([]);
+    }
+
+    const [headers, ...rows] = jobsData.values;
+    const jobs = rows.map(row => {
+      const job = {};
+      headers.forEach((header, index) => {
+        job[header.toLowerCase().replace(/\s+/g, '_')] = row[index] || '';
+      });
+      return job;
+    }).filter(job => job.driver_id === driverId);
+
+    res.json(jobs);
+
+  } catch (error) {
+    console.error('Error fetching driver jobs:', error);
+    res.status(500).json({ error: 'Error fetching jobs' });
+  }
+});
+
+// Update driver location
+app.post('/api/driver/location', (req, res) => {
+  try {
+    const { lat, lng, speed, timestamp, activeJobId } = req.body;
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const session = driverSessions[token];
+    
+    if (!session) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    // Update driver location
+    driverLocations[session.driverId] = {
+      lat,
+      lng,
+      speed: speed || 0,
+      timestamp,
+      activeJobId,
+      lastUpdate: new Date().toISOString()
+    };
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Error updating location:', error);
+    res.status(500).json({ error: 'Error updating location' });
+  }
+});
+
+// Complete pickup
+app.post('/api/driver/pickup-complete', async (req, res) => {
+  try {
+    const { jobId, location, timestamp } = req.body;
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const session = driverSessions[token];
+    
+    if (!session) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    // In a real implementation, update the job status in Google Sheets
+    console.log(`Pickup completed for job ${jobId} by driver ${session.driverId}`);
+    
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Error completing pickup:', error);
+    res.status(500).json({ error: 'Error completing pickup' });
+  }
+});
+
+// Complete delivery
+app.post('/api/driver/delivery-complete', async (req, res) => {
+  try {
+    const { jobId, location, timestamp } = req.body;
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const session = driverSessions[token];
+    
+    if (!session) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    // In a real implementation, update the job status to completed in Google Sheets
+    console.log(`Delivery completed for job ${jobId} by driver ${session.driverId}`);
+    
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Error completing delivery:', error);
+    res.status(500).json({ error: 'Error completing delivery' });
+  }
+});
+
+// Admin: Get all drivers tracking data
+app.get('/api/admin/drivers-tracking', authMiddleware, async (req, res) => {
+  try {
+    // Get drivers from Google Sheets
+    const driversData = await getCachedData('Drivers', () => 
+      sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Drivers!A:Z',
+      })
+    );
+
+    if (!driversData || !driversData.values) {
+      return res.json({ drivers: [], stats: { totalDrivers: 0, activeDrivers: 0, onRoute: 0, completedToday: 0 } });
+    }
+
+    const [headers, ...rows] = driversData.values;
+    const drivers = rows.map(row => {
+      const driver = {};
+      headers.forEach((header, index) => {
+        driver[header.toLowerCase().replace(/\s+/g, '_')] = row[index] || '';
+      });
+      return driver;
+    });
+
+    // Enhance with location and session data
+    const enhancedDrivers = drivers.map(driver => {
+      const location = driverLocations[driver.driver_id];
+      const isOnline = Object.values(driverSessions).some(session => session.driverId === driver.driver_id);
+      
+      let status = 'offline';
+      if (isOnline) {
+        if (location && location.activeJobId) {
+          status = 'on_route';
+        } else {
+          status = 'active';
+        }
+      }
+
+      return {
+        id: driver.driver_id,
+        name: driver.name,
+        email: driver.email,
+        phone: driver.phone,
+        status,
+        currentLocation: location ? { lat: location.lat, lng: location.lng } : null,
+        currentSpeed: location ? location.speed : 0,
+        lastUpdate: location ? location.lastUpdate : null,
+        currentJob: location ? location.activeJobId : null,
+        jobProgress: location && location.activeJobId ? 'In transit' : null
+      };
+    });
+
+    // Calculate stats
+    const stats = {
+      totalDrivers: drivers.length,
+      activeDrivers: enhancedDrivers.filter(d => d.status === 'active' || d.status === 'on_route').length,
+      onRoute: enhancedDrivers.filter(d => d.status === 'on_route').length,
+      completedToday: 0 // This would require tracking completed jobs
+    };
+
+    res.json({
+      drivers: enhancedDrivers,
+      stats
+    });
+
+  } catch (error) {
+    console.error('Error fetching drivers tracking data:', error);
+    res.status(500).json({ error: 'Error fetching tracking data' });
+  }
+});
+
 // Serve React frontend in production
 if (process.env.NODE_ENV === 'production') {
   // Serve static files from the React build
@@ -4345,10 +5294,10 @@ app.listen(PORT, () => {
   if (process.env.NODE_ENV === 'production') {
     console.log('Serving React frontend from /frontend/build');
   }
-  // Ensure consolidated sheet exists once server is up
-  ensureProcessedSheetExists().catch(err => console.error('Startup sheet creation error:', err));
-  // Also build the combined jobs sheet at startup
-  writeCombinedJobsSheet().catch(err => console.error('Startup combined sheet creation error:', err));
+  // Temporarily disabled to avoid quota issues at startup - will be called on-demand
+  // ensureProcessedSheetExists().catch(err => console.error('Startup sheet creation error:', err));
+  // writeCombinedJobsSheet().catch(err => console.error('Startup combined sheet creation error:', err));
+  console.log('📊 Rate limiting enabled: API quota-aware operations ready');
 });
 
 // Helper: write a Batch Plans sheet and append rows for a created batch
@@ -4442,6 +5391,287 @@ app.post('/api/batch-plans/create', async (req, res) => {
   } catch (e) {
     console.error('Error creating batch plan:', e.response?.data || e.message || e);
     res.status(500).json({ error: e.message || 'Failed to create batch plan' });
+  }
+});
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'text/tab-separated-values'
+    ];
+    
+    if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(xlsx?|csv|tsv)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only Excel (.xlsx, .xls) and CSV files are allowed'));
+    }
+  }
+});
+
+// AI File Upload endpoint - upload and parse Excel/CSV files
+app.post('/api/ai-upload-file', authMiddleware, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { originalname, mimetype, buffer } = req.file;
+    console.log(`📄 File Upload: Processing ${originalname} (${mimetype})`);
+
+    let parsedData = '';
+    
+    // Parse file based on type
+    if (mimetype.includes('csv') || originalname.toLowerCase().endsWith('.csv')) {
+      // Handle CSV files
+      parsedData = buffer.toString('utf8');
+    } else if (originalname.toLowerCase().endsWith('.tsv')) {
+      // Handle TSV files
+      parsedData = buffer.toString('utf8');
+    } else if (mimetype.includes('sheet') || originalname.match(/\.xlsx?$/i)) {
+      // Handle Excel files - for now, suggest CSV conversion
+      return res.status(400).json({ 
+        error: 'Excel files not yet supported in backend upload. Please save as CSV and upload, or use the copy-paste method.' 
+      });
+    } else {
+      return res.status(400).json({ error: 'Unsupported file format' });
+    }
+
+    // Return parsed data for AI processing on frontend
+    res.json({ 
+      success: true, 
+      data: parsedData,
+      filename: originalname,
+      message: `File ${originalname} parsed successfully. Ready for AI analysis.`
+    });
+
+  } catch (error) {
+    console.error('❌ File Upload error:', error);
+    res.status(500).json({ error: error.message || 'Failed to process uploaded file' });
+  }
+});
+
+// AI Data Import endpoint - intelligently import parsed data to sheets
+app.post('/api/ai-data-import', authMiddleware, async (req, res) => {
+  try {
+    const { targetSheet, data, mapping, originalHeaders } = req.body;
+    
+    if (!targetSheet || !Array.isArray(data) || data.length === 0) {
+      return res.status(400).json({ error: 'Invalid request: targetSheet and data array required' });
+    }
+
+    console.log(`🤖 AI Import: Processing ${data.length} rows for ${targetSheet}`);
+    console.log('🗂️ Column mapping:', mapping);
+
+    // Define sheet configurations with their expected columns - using real Google Sheets headers
+    const sheetConfigs = {
+      'Motorway Jobs': {
+        sheetName: SHEETS.motorway.name,
+        requiredColumns: ['job_id', 'VRM', 'collection_date', 'delivery_date', 'collection_full_address', 'delivery_full_address'],
+        allColumns: ['job_id', 'VRM', 'date_time_created', 'dealer', 'date_time_assigned', 'collection_full_address', 'collection_postcode', 'collection_town_city', 'collection_address_1', 'collection_address_2', 'collection_contact_first_name', 'collection_contact_surname', 'collection_email', 'collection_phone_number', 'preferred_seller_collection_dates', 'delivery_full_address', 'delivery_postcode', 'delivery_town_city', 'delivery_address_1', 'delivery_address_2', 'delivery_contact_first_name', 'delivery_contact_surname', 'delivery_email', 'delivery_phone_number', 'job_type', 'distance', 'collection_date', 'delivery_date', 'vehicle_year', 'vehicle_gearbox', 'vehicle_fuel', 'vehicle_colour', 'vehicle_vin', 'vehicle_mileage']
+      },
+      'ATMoves Jobs': {
+        sheetName: SHEETS.atmoves.name,
+        requiredColumns: ['job_id', 'VRM', 'collection_date', 'delivery_date', 'collection_full_address', 'delivery_full_address'],
+        allColumns: ['job_id', 'VRM', 'date_time_created', 'dealer', 'date_time_assigned', 'collection_full_address', 'collection_postcode', 'collection_town_city', 'collection_address_1', 'collection_address_2', 'collection_contact_first_name', 'collection_contact_surname', 'collection_email', 'collection_phone_number', 'preferred_seller_collection_dates', 'delivery_full_address', 'delivery_postcode', 'delivery_town_city', 'delivery_address_1', 'delivery_address_2', 'delivery_contact_first_name', 'delivery_contact_surname', 'delivery_email', 'delivery_phone_number', 'job_type', 'distance', 'collection_date', 'delivery_date', 'vehicle_year', 'vehicle_gearbox', 'vehicle_fuel', 'vehicle_colour', 'vehicle_vin', 'vehicle_mileage']
+      },
+      'Private Customer Jobs': {
+        sheetName: SHEETS.privateCustomers.name,
+        requiredColumns: ['job_id', 'VRM', 'collection_date', 'delivery_date', 'collection_full_address', 'delivery_full_address'],
+        allColumns: ['job_id', 'VRM', 'date_time_created', 'dealer', 'date_time_assigned', 'collection_full_address', 'collection_postcode', 'collection_town_city', 'collection_address_1', 'collection_address_2', 'collection_contact_first_name', 'collection_contact_surname', 'collection_email', 'collection_phone_number', 'preferred_seller_collection_dates', 'delivery_full_address', 'delivery_postcode', 'delivery_town_city', 'delivery_address_1', 'delivery_address_2', 'delivery_contact_first_name', 'delivery_contact_surname', 'delivery_email', 'delivery_phone_number', 'job_type', 'distance', 'collection_date', 'delivery_date', 'vehicle_year', 'vehicle_gearbox', 'vehicle_fuel', 'vehicle_colour', 'vehicle_vin', 'vehicle_mileage']
+      },
+      'Driver Availability': {
+        sheetName: SHEETS.drivers.name,
+        requiredColumns: ['Driver Name', 'Date', 'Available'],
+        allColumns: ['Driver Name', 'Date', 'Available', 'Notes', 'Region', 'Preferred Jobs']
+      },
+      'Processed Jobs': {
+        sheetName: SHEETS.processedJobs.name,
+        requiredColumns: ['Job Reference', 'Driver', 'Status', 'Date Completed'],
+        allColumns: ['Job Reference', 'Driver', 'Status', 'Date Completed', 'Notes', 'Completion Time', 'Customer Feedback']
+      }
+    };
+
+    const config = sheetConfigs[targetSheet];
+    if (!config) {
+      return res.status(400).json({ error: `Unsupported target sheet: ${targetSheet}` });
+    }
+
+    // Transform data according to the column mapping
+    const transformedRows = [];
+    const errors = [];
+    
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const transformedRow = {};
+      
+      // Direct mapping - use the column mapping as provided by frontend
+      Object.keys(row).forEach(sourceColumn => {
+        if (row[sourceColumn] !== undefined && row[sourceColumn] !== '') {
+          let value = row[sourceColumn];
+          
+          // Data validation and transformation
+          if (sourceColumn.toLowerCase().includes('date') && value) {
+            // Try to parse date formats
+            const date = new Date(value);
+            if (!isNaN(date.getTime())) {
+              value = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+            }
+          }
+          
+          if (sourceColumn.toLowerCase().includes('available') && value) {
+            // Normalize boolean values
+            value = ['yes', 'true', '1', 'available', 'y'].includes(value.toString().toLowerCase()) ? 'Yes' : 'No';
+          }
+          
+          transformedRow[sourceColumn] = value;
+        }
+      });
+
+      // Add auto-generated fields if needed
+      if (targetSheet.includes('Jobs') && !transformedRow['job_id']) {
+        transformedRow['job_id'] = generateId('AI');
+      }
+
+      // Add current timestamp for created field if not provided
+      if (targetSheet.includes('Jobs') && !transformedRow['date_time_created']) {
+        transformedRow['date_time_created'] = new Date().toISOString();
+      }
+
+      transformedRows.push(transformedRow);
+    }
+
+    if (errors.length > 0 && transformedRows.length === 0) {
+      return res.status(400).json({ error: 'Data validation failed', details: errors });
+    }
+
+    // Apply rate limiting before API calls
+    if (!canMakeApiCall()) {
+      const resetTime = new Date(apiCallResetTime).toLocaleTimeString();
+      return res.status(429).json({ 
+        error: `Rate limit exceeded. ${apiCallCount} calls in the last minute. Try again after ${resetTime}` 
+      });
+    }
+
+    // Add rows to the target sheet
+    let successCount = 0;
+    const importErrors = [];
+
+    for (const row of transformedRows) {
+      try {
+        if (!canMakeApiCall()) {
+          importErrors.push('Rate limit reached during import');
+          break;
+        }
+
+        // Convert to sheet format for insertion (direct mapping)
+        const sheetRow = {};
+        Object.keys(row).forEach(columnName => {
+          if (row[columnName] !== undefined) {
+            sheetRow[columnName] = row[columnName];
+          }
+        });
+
+        // Use the existing add row functionality
+        await appendRow(config.sheetName, sheetRow);
+        incrementApiCall();
+        successCount++;
+        
+      } catch (error) {
+        console.error(`Error importing row:`, error);
+        importErrors.push(`Failed to import row: ${error.message}`);
+      }
+    }
+
+    // Invalidate cache to refresh UI
+    cache.timestamp = 0;
+
+    const result = {
+      success: true,
+      targetSheet,
+      totalRows: data.length,
+      successCount,
+      errorCount: importErrors.length,
+      validationErrors: errors,
+      importErrors
+    };
+
+    if (importErrors.length > 0) {
+      result.partialSuccess = true;
+    }
+
+    console.log(`✅ AI Import completed: ${successCount}/${data.length} rows imported to ${targetSheet}`);
+    res.json(result);
+
+  } catch (error) {
+    console.error('❌ AI Import error:', error);
+    res.status(500).json({ error: `Import failed: ${error.message}` });
+  }
+});
+
+// API: Get actual column headers from a specific sheet
+app.get('/api/sheets/:sheetType/headers', authMiddleware, async (req, res) => {
+  try {
+    const { sheetType } = req.params;
+    
+    // Map sheet types to actual sheet names
+    const sheetMapping = {
+      'motorway': SHEETS.motorway.name,
+      'atmoves': SHEETS.atmoves.name,
+      'privateCustomers': SHEETS.privateCustomers.name,
+      'drivers': SHEETS.drivers.name,
+      'processedJobs': SHEETS.processedJobs.name
+    };
+
+    const sheetName = sheetMapping[sheetType];
+    if (!sheetName) {
+      return res.status(400).json({ error: `Invalid sheet type: ${sheetType}` });
+    }
+
+    // Apply rate limiting
+    if (!canMakeApiCall()) {
+      const resetTime = new Date(apiCallResetTime).toLocaleTimeString();
+      return res.status(429).json({ 
+        error: `Rate limit exceeded. Try again after ${resetTime}` 
+      });
+    }
+
+    console.log(`📋 Fetching headers for sheet: ${sheetName}`);
+
+    // Get the first row (headers) from the sheet
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${sheetName}!1:1`, // First row only
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    incrementApiCall();
+
+    const headers = response.data.values?.[0] || [];
+    
+    console.log(`✅ Retrieved ${headers.length} headers from ${sheetName}:`, headers);
+
+    res.json({
+      success: true,
+      sheetName,
+      sheetType,
+      headers,
+      totalColumns: headers.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching sheet headers:', error);
+    res.status(500).json({ 
+      error: `Failed to fetch headers: ${error.message}`,
+      sheetType: req.params.sheetType
+    });
   }
 });
 
