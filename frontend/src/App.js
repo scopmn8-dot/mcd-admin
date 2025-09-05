@@ -285,7 +285,6 @@ function App() {
   const [notifications, setNotifications] = useState([
     { id: 1, message: "New job assignment available", time: "2 min ago", read: false },
     { id: 2, message: "Clustering completed successfully", time: "5 min ago", read: false },
-    { id: 3, message: "Driver route optimized", time: "10 min ago", read: true },
   ]);
   const isMobile = useMediaQuery('(max-width:768px)');
   const isTablet = useMediaQuery('(max-width:1024px)');
@@ -446,9 +445,7 @@ function App() {
   const [lastAutoRun, setLastAutoRun] = useState(null);
   const [autoRunSteps, setAutoRunSteps] = useState({
     clustering: 'pending', // 'pending' | 'running' | 'success' | 'error'
-    assignDrivers: 'pending',
-  assignIds: 'pending',
-  enforceSequencing: 'pending',
+    assignIds: 'pending',
   });
   const autoRunRef = useRef(null);
 
@@ -456,7 +453,7 @@ function App() {
     if (autoRunRef.current?.running) return; // avoid overlapping runs
     autoRunRef.current = { running: true };
     setAutoRunStatus('running');
-  setAutoRunSteps({ clustering: 'running', assignDrivers: 'pending', assignIds: 'pending', enforceSequencing: 'pending' });
+  setAutoRunSteps({ clustering: 'running', assignIds: 'pending' });
     try {
       // 1) Auto cluster & assign
   const clusterRes = await apiFetch('/api/auto-cluster-assign', { method: 'POST' });
@@ -465,34 +462,16 @@ function App() {
         setAutoRunSteps(prev => ({ ...prev, clustering: 'error' }));
         throw new Error(`cluster error: ${t}`);
       }
-      setAutoRunSteps(prev => ({ ...prev, clustering: 'success', assignDrivers: 'running' }));
+      setAutoRunSteps(prev => ({ ...prev, clustering: 'success', assignIds: 'running' }));
 
-      // 2) Assign drivers with sequencing
-  const assignRes = await apiFetch('/api/assign-jobs-with-sequencing', { method: 'POST' });
-      if (!assignRes.ok) {
-        const t = await assignRes.text();
-        setAutoRunSteps(prev => ({ ...prev, assignDrivers: 'error' }));
-        throw new Error(`assign error: ${t}`);
-      }
-      setAutoRunSteps(prev => ({ ...prev, assignDrivers: 'success', assignIds: 'running' }));
-
-      // 3) Auto-assign ids (job/cluster/order numbers)
+      // 2) Auto-assign ids (job/cluster/order numbers)
   const idsRes = await apiFetch('/api/jobs/auto-assign-ids', { method: 'POST' });
       if (!idsRes.ok) {
         const t = await idsRes.text();
         setAutoRunSteps(prev => ({ ...prev, assignIds: 'error' }));
         throw new Error(`ids error: ${t}`);
       }
-      setAutoRunSteps(prev => ({ ...prev, assignIds: 'success', enforceSequencing: 'running' }));
-
-      // 4) Enforce sequencing to ensure one active job per driver
-  const enforceRes = await apiFetch('/api/jobs/enforce-sequencing', { method: 'POST' });
-      if (!enforceRes.ok) {
-        const t = await enforceRes.text();
-        setAutoRunSteps(prev => ({ ...prev, enforceSequencing: 'error' }));
-        throw new Error(`enforce sequencing error: ${t}`);
-      }
-      setAutoRunSteps(prev => ({ ...prev, enforceSequencing: 'success' }));
+      setAutoRunSteps(prev => ({ ...prev, assignIds: 'success' }));
 
       setAutoRunStatus('idle');
       setLastAutoRun(new Date());
@@ -708,9 +687,7 @@ function App() {
                     </Box>
                     <Box sx={{ ml: 1, display: 'flex', gap: 1 }}>
                       <Chip label={autoRunSteps.clustering} size="small" color={autoRunSteps.clustering === 'running' ? 'info' : autoRunSteps.clustering === 'success' ? 'success' : autoRunSteps.clustering === 'error' ? 'error' : 'default'} />
-                      <Chip label={autoRunSteps.assignDrivers} size="small" color={autoRunSteps.assignDrivers === 'running' ? 'info' : autoRunSteps.assignDrivers === 'success' ? 'success' : autoRunSteps.assignDrivers === 'error' ? 'error' : 'default'} />
                       <Chip label={autoRunSteps.assignIds} size="small" color={autoRunSteps.assignIds === 'running' ? 'info' : autoRunSteps.assignIds === 'success' ? 'success' : autoRunSteps.assignIds === 'error' ? 'error' : 'default'} />
-                      <Chip label={autoRunSteps.enforceSequencing} size="small" color={autoRunSteps.enforceSequencing === 'running' ? 'info' : autoRunSteps.enforceSequencing === 'success' ? 'success' : autoRunSteps.enforceSequencing === 'error' ? 'error' : 'default'} />
                     </Box>
                   </Box>
                 </Paper>

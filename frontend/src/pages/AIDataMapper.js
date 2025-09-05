@@ -84,11 +84,6 @@ const AIDataMapper = () => {
       optional: ['date_time_created', 'dealer', 'date_time_assigned', 'collection_postcode', 'collection_town_city', 'collection_address_1', 'collection_address_2', 'collection_contact_first_name', 'collection_contact_surname', 'collection_email', 'collection_phone_number', 'preferred_seller_collection_dates', 'delivery_postcode', 'delivery_town_city', 'delivery_address_1', 'delivery_address_2', 'delivery_contact_first_name', 'delivery_contact_surname', 'delivery_email', 'delivery_phone_number', 'job_type', 'distance', 'vehicle_year', 'vehicle_gearbox', 'vehicle_fuel', 'vehicle_colour', 'vehicle_vin', 'vehicle_mileage'],
       description: 'Private customer delivery jobs sheet with vehicle details'
     },
-    'Driver Availability': {
-      required: ['Driver Name', 'Date', 'Available'],
-      optional: ['Notes', 'Region', 'Preferred Jobs'],
-      description: 'Driver availability tracking'
-    },
     'Processed Jobs': {
       required: ['Job Reference', 'Driver', 'Status', 'Date Completed'],
       optional: ['Notes', 'Completion Time', 'Customer Feedback'],
