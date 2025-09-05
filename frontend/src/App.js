@@ -6,6 +6,7 @@ import Drivers from "./pages/Drivers";
 import ProcessedJobs from "./pages/ProcessedJobs";
 import BatchPlans from "./pages/BatchPlans";
 import Users from "./pages/Users";
+import AIDataMapper from "./pages/AIDataMapper";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import './styles/modern.css';
@@ -56,7 +57,8 @@ import {
   ExitToApp as LogoutIcon,
   NotificationsActive as NotificationsActiveIcon,
   LocalShipping as DeliveryIcon,
-  DriveEta as CarIcon
+  DriveEta as CarIcon,
+  SmartToy as AIIcon
 } from "@mui/icons-material";
 
 const drawerWidth = 280; // Increased for better visual balance
@@ -339,6 +341,7 @@ function App() {
   
   const navigationItems = [
     { label: 'Dashboard', icon: <DashboardIcon />, index: 0 },
+    { label: 'AI Data Mapper', icon: <AIIcon />, index: 8 },
     { label: 'Clustering', icon: <ClusteringIcon />, index: 1 },
     { label: 'Drivers', icon: <DriversIcon />, index: 2 },
     { label: 'Processed Jobs', icon: <PlayArrowIcon />, index: 3 },
@@ -521,6 +524,7 @@ function App() {
       case 2: return <Drivers />;
       case 3: return <ProcessedJobs />;
       case 4: return <BatchPlans />;
+      case 8: return <AIDataMapper />;
       case 10: return <Users />;
       case 7: // Logout
         handleLogout();

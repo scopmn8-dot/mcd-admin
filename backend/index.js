@@ -4652,6 +4652,185 @@ app.post('/api/batch-plans/create', async (req, res) => {
   }
 });
 
+// AI Data Import endpoint - intelligently import parsed data to sheets
+app.post('/api/ai-data-import', authMiddleware, async (req, res) => {
+  try {
+    const { targetSheet, data, mapping, originalHeaders } = req.body;
+    
+    if (!targetSheet || !Array.isArray(data) || data.length === 0) {
+      return res.status(400).json({ error: 'Invalid request: targetSheet and data array required' });
+    }
+
+    console.log(`🤖 AI Import: Processing ${data.length} rows for ${targetSheet}`);
+    console.log('🗂️ Column mapping:', mapping);
+
+    // Define sheet configurations with their expected columns
+    const sheetConfigs = {
+      'Job Intake': {
+        sheetName: SHEETS.motorway.name, // Use motorway as default job intake
+        requiredColumns: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
+        columnMap: {
+          'Job Reference': 'job_id',
+          'Customer Name': 'customer_name',
+          'Collection Date': 'collection_date',
+          'Delivery Date': 'delivery_date',
+          'Collection Address': 'collection_address',
+          'Delivery Address': 'delivery_address',
+          'Driver': 'selected_driver',
+          'Status': 'status',
+          'Notes': 'notes',
+          'Job Type': 'job_type'
+        }
+      },
+      'Driver Availability': {
+        sheetName: SHEETS.drivers.name,
+        requiredColumns: ['Driver Name', 'Date', 'Available'],
+        columnMap: {
+          'Driver Name': 'driver_name',
+          'Date': 'date',
+          'Available': 'available',
+          'Notes': 'notes',
+          'Region': 'region',
+          'Preferred Jobs': 'preferred_jobs'
+        }
+      },
+      'Processed Jobs': {
+        sheetName: SHEETS.processedJobs.name,
+        requiredColumns: ['Job Reference', 'Driver', 'Status', 'Date Completed'],
+        columnMap: {
+          'Job Reference': 'job_id',
+          'Driver': 'driver_name',
+          'Status': 'status',
+          'Date Completed': 'completion_date',
+          'Notes': 'notes',
+          'Completion Time': 'completion_time',
+          'Customer Feedback': 'customer_feedback'
+        }
+      }
+    };
+
+    const config = sheetConfigs[targetSheet];
+    if (!config) {
+      return res.status(400).json({ error: `Unsupported target sheet: ${targetSheet}` });
+    }
+
+    // Transform data according to the column mapping
+    const transformedRows = [];
+    const errors = [];
+    
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const transformedRow = {};
+      
+      // Map each field according to the configuration
+      Object.entries(config.columnMap).forEach(([displayName, internalName]) => {
+        if (row[displayName] !== undefined) {
+          let value = row[displayName];
+          
+          // Data validation and transformation
+          if (displayName.includes('Date') && value) {
+            // Try to parse date formats
+            const date = new Date(value);
+            if (!isNaN(date.getTime())) {
+              value = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+            }
+          }
+          
+          if (displayName === 'Available' && value) {
+            // Normalize boolean values
+            value = ['yes', 'true', '1', 'available', 'y'].includes(value.toString().toLowerCase()) ? 'Yes' : 'No';
+          }
+          
+          transformedRow[internalName] = value;
+        }
+      });
+
+      // Add auto-generated fields
+      if (config.columnMap['Job Reference'] && !transformedRow.job_id) {
+        transformedRow.job_id = generateId('AI');
+      }
+
+      // Validate required fields
+      const missingFields = config.requiredColumns.filter(reqField => {
+        const internalField = config.columnMap[reqField];
+        return !transformedRow[internalField];
+      });
+
+      if (missingFields.length > 0) {
+        errors.push(`Row ${i + 1}: Missing required fields: ${missingFields.join(', ')}`);
+      } else {
+        transformedRows.push(transformedRow);
+      }
+    }
+
+    if (errors.length > 0 && transformedRows.length === 0) {
+      return res.status(400).json({ error: 'Data validation failed', details: errors });
+    }
+
+    // Apply rate limiting before API calls
+    if (!canMakeApiCall()) {
+      const resetTime = new Date(apiCallResetTime).toLocaleTimeString();
+      return res.status(429).json({ 
+        error: `Rate limit exceeded. ${apiCallCount} calls in the last minute. Try again after ${resetTime}` 
+      });
+    }
+
+    // Add rows to the target sheet
+    let successCount = 0;
+    const importErrors = [];
+
+    for (const row of transformedRows) {
+      try {
+        if (!canMakeApiCall()) {
+          importErrors.push('Rate limit reached during import');
+          break;
+        }
+
+        // Convert internal format back to sheet format for insertion
+        const sheetRow = {};
+        Object.entries(config.columnMap).forEach(([displayName, internalName]) => {
+          if (row[internalName] !== undefined) {
+            sheetRow[displayName] = row[internalName];
+          }
+        });
+
+        // Use the existing add row functionality
+        await appendRow(config.sheetName, sheetRow);
+        incrementApiCall();
+        successCount++;
+        
+      } catch (error) {
+        console.error(`Error importing row:`, error);
+        importErrors.push(`Failed to import row: ${error.message}`);
+      }
+    }
+
+    // Invalidate cache to refresh UI
+    cache.timestamp = 0;
+
+    const result = {
+      success: true,
+      targetSheet,
+      totalRows: data.length,
+      successCount,
+      errorCount: importErrors.length,
+      validationErrors: errors,
+      importErrors
+    };
+
+    if (importErrors.length > 0) {
+      result.partialSuccess = true;
+    }
+
+    console.log(`✅ AI Import completed: ${successCount}/${data.length} rows imported to ${targetSheet}`);
+    res.json(result);
+
+  } catch (error) {
+    console.error('❌ AI Import error:', error);
+    res.status(500).json({ error: `Import failed: ${error.message}` });
+  }
+});
+
   // --- Exported utilities for testing (module-scope) ---
   export function generateClustersForTesting(jobs, drivers, options = {}) {
     const POSTCODE_CACHE = options.postcodeCache || postcodeApiCache || {};
