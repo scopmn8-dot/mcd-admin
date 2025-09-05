@@ -33,8 +33,8 @@ import {
 } from "@mui/icons-material";
 
 const columns = [
-  "name", "phone", "email", "address", "region", "status", "max_capacity", 
-  "current_jobs", "total_jobs", "last_active", "notes"
+  "Name", "Phone", "Email", "postcode", "region", "availability", "MaxPerDay", 
+  "Active Jobs", "Total Jobs", "Completed Jobs", "Pending Jobs"
 ];
 
 // Modern stat card component
@@ -223,9 +223,9 @@ export default function Drivers() {
 
   const driverStats = {
     totalDrivers: drivers.length,
-    activeDrivers: drivers.filter(d => d.status?.toLowerCase() === 'active' || !d.status).length,
+    activeDrivers: drivers.filter(d => d.availability?.toLowerCase() === 'available' || !d.availability).length,
     regionsCount: new Set(drivers.map(d => d.region?.toLowerCase()).filter(Boolean)).size,
-    averageCapacity: drivers.length > 0 ? Math.round(drivers.reduce((sum, d) => sum + (parseInt(d.max_capacity) || 0), 0) / drivers.length) : 0,
+    averageCapacity: drivers.length > 0 ? Math.round(drivers.reduce((sum, d) => sum + (parseInt(d.MaxPerDay) || 0), 0) / drivers.length) : 0,
   };
 
   return (
