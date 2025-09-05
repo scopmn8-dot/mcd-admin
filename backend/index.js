@@ -957,7 +957,7 @@ async function fetchDriversSheet() {
   }
 }
 // API to get drivers
-app.get('/api/drivers', async (req, res) => {
+app.get('/api/drivers', authMiddleware, async (req, res) => {
   try {
     const drivers = await fetchDriversSheet();
     res.json(drivers);
@@ -968,7 +968,7 @@ app.get('/api/drivers', async (req, res) => {
 });
 
 // API to list all available sheets in the spreadsheet
-app.get('/api/sheets', async (req, res) => {
+app.get('/api/sheets', authMiddleware, async (req, res) => {
   try {
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
     const sheetList = meta.data.sheets.map(sheet => ({
@@ -986,7 +986,7 @@ app.get('/api/sheets', async (req, res) => {
 });
 
 // Test endpoint to check drivers sheet with different names
-app.get('/api/test-drivers', async (req, res) => {
+app.get('/api/test-drivers', authMiddleware, async (req, res) => {
   const potentialNames = ['Drivers', 'Driver', 'drivers', 'DRIVERS', 'Sheet1', 'Sheet2', 'Sheet3', 'Sheet4'];
   const results = [];
   
