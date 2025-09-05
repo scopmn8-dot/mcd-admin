@@ -62,10 +62,20 @@ const AIDataMapper = () => {
 
   // Known column structures for different sheets
   const sheetStructures = {
-    'Job Intake': {
+    'Motorway Jobs': {
       required: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
-      optional: ['Driver', 'Status', 'Notes', 'Job Type'],
-      description: 'Main job intake sheet for new deliveries'
+      optional: ['Driver', 'Status', 'Notes', 'Job Type', 'Collection Postcode', 'Delivery Postcode'],
+      description: 'Motorway delivery jobs sheet'
+    },
+    'ATMoves Jobs': {
+      required: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
+      optional: ['Driver', 'Status', 'Notes', 'Job Type', 'Collection Postcode', 'Delivery Postcode'],
+      description: 'ATMoves delivery jobs sheet'
+    },
+    'Private Customer Jobs': {
+      required: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
+      optional: ['Driver', 'Status', 'Notes', 'Job Type', 'Collection Postcode', 'Delivery Postcode'],
+      description: 'Private customer delivery jobs sheet'
     },
     'Driver Availability': {
       required: ['Driver Name', 'Date', 'Available'],
@@ -149,14 +159,14 @@ const AIDataMapper = () => {
 
         // Special keyword detection
         if (normalizedHeader.includes('ref') || normalizedHeader.includes('id')) {
-          if (sheetName === 'Job Intake') {
+          if (sheetName.includes('Jobs') || sheetName === 'Processed Jobs') {
             mapping[index] = 'Job Reference';
             score += 2;
           }
         }
         if (normalizedHeader.includes('driver') || normalizedHeader.includes('name')) {
           if (sheetName === 'Driver Availability' || sheetName === 'Processed Jobs') {
-            mapping[index] = 'Driver Name';
+            mapping[index] = sheetName === 'Driver Availability' ? 'Driver Name' : 'Driver';
             score += 2;
           }
         }
@@ -198,7 +208,7 @@ const AIDataMapper = () => {
     }
 
     return {
-      suggestedSheet: bestMatch.sheet || 'Job Intake',
+      suggestedSheet: bestMatch.sheet || 'Motorway Jobs',
       confidence: Math.min(100, Math.round((bestMatch.score / headers.length) * 50)),
       mapping: suggestions[bestMatch.sheet]?.mapping || {},
       warnings
@@ -302,10 +312,21 @@ const AIDataMapper = () => {
                 onChange={(e) => setRawData(e.target.value)}
                 placeholder="Paste your copied sheet data here (CSV, TSV, or Excel format)...
 
-Example:
-Job Reference	Customer Name	Collection Date	Delivery Date
-JOB001	ABC Company	2024-01-15	2024-01-16
-JOB002	XYZ Ltd	2024-01-16	2024-01-17"
+Examples:
+
+📋 For Job Sheets:
+Job Reference	Customer Name	Collection Date	Delivery Date	Collection Address	Delivery Address
+JOB001	ABC Company	2024-01-15	2024-01-16	123 Main St, London	456 Oak Ave, Birmingham
+JOB002	XYZ Ltd	2024-01-16	2024-01-17	789 High St, Manchester	321 Elm Rd, Liverpool
+
+🚗 For Driver Availability:
+Driver Name	Date	Available	Notes
+John Smith	2024-01-15	Yes	Preferred region: North
+Jane Doe	2024-01-16	No	Holiday
+
+✅ For Processed Jobs:
+Job Reference	Driver	Status	Date Completed
+JOB001	John Smith	Completed	2024-01-15"
                 variant="outlined"
                 sx={{ mb: 2 }}
               />
@@ -368,11 +389,51 @@ JOB002	XYZ Ltd	2024-01-16	2024-01-17"
                     onChange={(e) => setTargetSheet(e.target.value)}
                     label="Target Sheet"
                   >
-                    {sheets.map(sheet => (
-                      <MenuItem key={sheet} value={sheet}>
-                        {sheet}
-                      </MenuItem>
-                    ))}
+                    <MenuItem value="Motorway Jobs">
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <span>🛣️</span>
+                        <Box>
+                          <Typography variant="body2">Motorway Jobs</Typography>
+                          <Typography variant="caption" color="text.secondary">Main motorway delivery jobs</Typography>
+                        </Box>
+                      </Stack>
+                    </MenuItem>
+                    <MenuItem value="ATMoves Jobs">
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <span>🏧</span>
+                        <Box>
+                          <Typography variant="body2">ATMoves Jobs</Typography>
+                          <Typography variant="caption" color="text.secondary">ATM relocation jobs</Typography>
+                        </Box>
+                      </Stack>
+                    </MenuItem>
+                    <MenuItem value="Private Customer Jobs">
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <span>👤</span>
+                        <Box>
+                          <Typography variant="body2">Private Customer Jobs</Typography>
+                          <Typography variant="caption" color="text.secondary">Private customer deliveries</Typography>
+                        </Box>
+                      </Stack>
+                    </MenuItem>
+                    <MenuItem value="Driver Availability">
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <span>🚗</span>
+                        <Box>
+                          <Typography variant="body2">Driver Availability</Typography>
+                          <Typography variant="caption" color="text.secondary">Driver schedule and availability</Typography>
+                        </Box>
+                      </Stack>
+                    </MenuItem>
+                    <MenuItem value="Processed Jobs">
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <span>✅</span>
+                        <Box>
+                          <Typography variant="body2">Processed Jobs</Typography>
+                          <Typography variant="caption" color="text.secondary">Completed job records</Typography>
+                        </Box>
+                      </Stack>
+                    </MenuItem>
                   </Select>
                 </FormControl>
 

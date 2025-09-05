@@ -4666,8 +4666,8 @@ app.post('/api/ai-data-import', authMiddleware, async (req, res) => {
 
     // Define sheet configurations with their expected columns
     const sheetConfigs = {
-      'Job Intake': {
-        sheetName: SHEETS.motorway.name, // Use motorway as default job intake
+      'Motorway Jobs': {
+        sheetName: SHEETS.motorway.name,
         requiredColumns: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
         columnMap: {
           'Job Reference': 'job_id',
@@ -4676,6 +4676,44 @@ app.post('/api/ai-data-import', authMiddleware, async (req, res) => {
           'Delivery Date': 'delivery_date',
           'Collection Address': 'collection_address',
           'Delivery Address': 'delivery_address',
+          'Collection Postcode': 'collection_postcode',
+          'Delivery Postcode': 'delivery_postcode',
+          'Driver': 'selected_driver',
+          'Status': 'status',
+          'Notes': 'notes',
+          'Job Type': 'job_type'
+        }
+      },
+      'ATMoves Jobs': {
+        sheetName: SHEETS.atmoves.name,
+        requiredColumns: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
+        columnMap: {
+          'Job Reference': 'job_id',
+          'Customer Name': 'customer_name',
+          'Collection Date': 'collection_date',
+          'Delivery Date': 'delivery_date',
+          'Collection Address': 'collection_address',
+          'Delivery Address': 'delivery_address',
+          'Collection Postcode': 'collection_postcode',
+          'Delivery Postcode': 'delivery_postcode',
+          'Driver': 'selected_driver',
+          'Status': 'status',
+          'Notes': 'notes',
+          'Job Type': 'job_type'
+        }
+      },
+      'Private Customer Jobs': {
+        sheetName: SHEETS.privateCustomers.name,
+        requiredColumns: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
+        columnMap: {
+          'Job Reference': 'job_id',
+          'Customer Name': 'customer_name',
+          'Collection Date': 'collection_date',
+          'Delivery Date': 'delivery_date',
+          'Collection Address': 'collection_address',
+          'Delivery Address': 'delivery_address',
+          'Collection Postcode': 'collection_postcode',
+          'Delivery Postcode': 'delivery_postcode',
           'Driver': 'selected_driver',
           'Status': 'status',
           'Notes': 'notes',
