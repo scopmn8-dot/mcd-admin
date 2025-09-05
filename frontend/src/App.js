@@ -58,7 +58,13 @@ import {
   NotificationsActive as NotificationsActiveIcon,
   LocalShipping as DeliveryIcon,
   DriveEta as CarIcon,
-  SmartToy as AIIcon
+  SmartToy as AIIcon,
+  Login as LoginIcon,
+  PersonAdd as RegisterIcon,
+  WorkOutline as JobsIcon,
+  Analytics as AnalyticsIcon,
+  Assignment as AssignmentIcon,
+  Speed as SpeedIcon
 } from "@mui/icons-material";
 
 const drawerWidth = 280; // Increased for better visual balance
@@ -340,21 +346,40 @@ function App() {
   }, [isTablet]);
   
   const navigationItems = [
-    { label: 'Dashboard', icon: <DashboardIcon />, index: 0 },
-    { label: 'AI Data Mapper', icon: <AIIcon />, index: 8 },
-    { label: 'Clustering', icon: <ClusteringIcon />, index: 1 },
-    { label: 'Drivers', icon: <DriversIcon />, index: 2 },
-    { label: 'Processed Jobs', icon: <PlayArrowIcon />, index: 3 },
-    { label: 'Batch Plans', icon: <TrendingUpIcon />, index: 4 },
-    { label: 'Users', icon: <PeopleIcon />, index: 10 },
-    ...(isAuthenticated 
-      ? [{ label: 'Logout', icon: <LogoutIcon />, index: 7 }]
-      : [
-          { label: 'Sign in', icon: <SettingsIcon />, index: 5 },
-          { label: 'Register', icon: <SettingsIcon />, index: 6 },
-        ]
-    ),
+    // Core Operations
+    { 
+      section: 'Operations',
+      items: [
+        { label: 'Dashboard', icon: <DashboardIcon />, index: 0, description: 'Main overview and statistics' },
+        { label: 'AI Data Mapper', icon: <AIIcon />, index: 8, description: 'Intelligent data import and mapping' },
+        { label: 'Clustering', icon: <ClusteringIcon />, index: 1, description: 'Job clustering and optimization' },
+      ]
+    },
+    // Job Management
+    {
+      section: 'Job Management', 
+      items: [
+        { label: 'Processed Jobs', icon: <JobsIcon />, index: 3, description: 'View completed job history' },
+        { label: 'Batch Plans', icon: <AssignmentIcon />, index: 4, description: 'Batch planning and execution' },
+      ]
+    },
+    // Team & Resources
+    {
+      section: 'Team & Resources',
+      items: [
+        { label: 'Drivers', icon: <DriversIcon />, index: 2, description: 'Driver management and assignments' },
+        { label: 'Users', icon: <PeopleIcon />, index: 10, description: 'User account management' },
+      ]
+    }
   ];
+
+  // Authentication items
+  const authItems = isAuthenticated 
+    ? [{ label: 'Logout', icon: <LogoutIcon />, index: 7, description: 'Sign out of your account' }]
+    : [
+        { label: 'Sign in', icon: <LoginIcon />, index: 5, description: 'Access your account' },
+        { label: 'Register', icon: <RegisterIcon />, index: 6, description: 'Create new account' },
+      ];
 
   const handleDrawerToggle = () => {
     setDrawerOpen(!drawerOpen);
@@ -931,7 +956,7 @@ function App() {
           <Toolbar sx={{ minHeight: '72px !important' }} /> {/* Spacer for app bar */}
           
           <Box sx={{ overflow: 'auto', p: 3 }}>
-            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 3 }}>
               <Box sx={{ 
                 width: 3, 
                 height: 16, 
@@ -947,60 +972,252 @@ function App() {
               </Typography>
             </Stack>
             
-            <List sx={{ mb: 3 }}>
-              {navigationItems.map((item) => (
-                <ListItem key={item.label} disablePadding sx={{ mb: 1 }}>
-                  <ListItemButton
-                    selected={activeTab === item.index}
-                    onClick={() => {
-                      setActiveTab(item.index);
-                      if (isMobile) setDrawerOpen(false);
-                    }}
+            {/* Grouped Navigation Items */}
+            {navigationItems.map((section, sectionIndex) => (
+              <Box key={section.section} sx={{ mb: 3 }}>
+                <Typography 
+                  variant="overline" 
+                  sx={{ 
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: 'text.secondary',
+                    letterSpacing: '0.1em',
+                    mb: 1.5,
+                    display: 'block',
+                    px: 2
+                  }}
+                >
+                  {section.section}
+                </Typography>
+                <List sx={{ mb: 0 }}>
+                  {section.items.map((item) => (
+                    <ListItem key={item.label} disablePadding sx={{ mb: 1 }}>
+                      <Tooltip 
+                        title={item.description} 
+                        placement="right" 
+                        arrow
+                        enterDelay={500}
+                      >
+                        <ListItemButton
+                          selected={activeTab === item.index}
+                          onClick={() => {
+                            setActiveTab(item.index);
+                            if (isMobile) setDrawerOpen(false);
+                          }}
+                          sx={{
+                            borderRadius: 3,
+                            minHeight: 56,
+                            px: 3,
+                            py: 1.5,
+                            backgroundColor: activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'transparent',
+                            background: activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'transparent',
+                            color: activeTab === item.index ? 'black' : 'text.primary',
+                            boxShadow: activeTab === item.index ? '0 4px 16px rgba(0, 255, 136, 0.3)' : 'none',
+                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                            '&:hover': {
+                              transform: 'translateX(4px)',
+                              backgroundColor: activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'rgba(0, 255, 136, 0.08)',
+                              background: activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'rgba(0, 255, 136, 0.08)',
+                            },
+                            '&.Mui-selected': {
+                              backgroundColor: 'transparent',
+                              background: 'linear-gradient(135deg, #00ff88, #00cc66)',
+                              '&:hover': {
+                                backgroundColor: 'transparent',
+                                background: 'linear-gradient(135deg, #33ff99, #33d477)',
+                              },
+                            },
+                          }}
+                        >
+                          <ListItemIcon
+                            sx={{
+                              color: activeTab === item.index ? 'black' : 'text.secondary',
+                              minWidth: 48,
+                            }}
+                          >
+                            {item.icon}
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={item.label}
+                            primaryTypographyProps={{
+                              fontWeight: activeTab === item.index ? 700 : 600,
+                              fontSize: '0.95rem',
+                              color: activeTab === item.index ? 'black' : 'inherit',
+                            }}
+                          />
+                        </ListItemButton>
+                      </Tooltip>
+                    </ListItem>
+                  ))}
+                </List>
+              </Box>
+            ))}
+
+            {/* Authentication Section */}
+            {authItems.length > 0 && (
+              <Box sx={{ mb: 3 }}>
+                <Typography 
+                  variant="overline" 
+                  sx={{ 
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: 'text.secondary',
+                    letterSpacing: '0.1em',
+                    mb: 1.5,
+                    display: 'block',
+                    px: 2
+                  }}
+                >
+                  Account
+                </Typography>
+                <List>
+                  {authItems.map((item) => (
+                    <ListItem key={item.label} disablePadding sx={{ mb: 1 }}>
+                      <Tooltip 
+                        title={item.description} 
+                        placement="right" 
+                        arrow
+                        enterDelay={500}
+                      >
+                        <ListItemButton
+                          selected={activeTab === item.index}
+                          onClick={() => {
+                            setActiveTab(item.index);
+                            if (isMobile) setDrawerOpen(false);
+                          }}
+                          sx={{
+                            borderRadius: 3,
+                            minHeight: 56,
+                            px: 3,
+                            py: 1.5,
+                            backgroundColor: activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'transparent',
+                            background: activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'transparent',
+                            color: activeTab === item.index ? 'black' : item.label === 'Logout' ? 'error.main' : 'text.primary',
+                            boxShadow: activeTab === item.index ? '0 4px 16px rgba(0, 255, 136, 0.3)' : 'none',
+                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                            '&:hover': {
+                              transform: 'translateX(4px)',
+                              backgroundColor: item.label === 'Logout' ? 'rgba(244, 67, 54, 0.08)' : 
+                                activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'rgba(0, 255, 136, 0.08)',
+                              background: item.label === 'Logout' ? 'rgba(244, 67, 54, 0.08)' :
+                                activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'rgba(0, 255, 136, 0.08)',
+                            },
+                          }}
+                        >
+                          <ListItemIcon
+                            sx={{
+                              color: activeTab === item.index ? 'black' : 
+                                item.label === 'Logout' ? 'error.main' : 'text.secondary',
+                              minWidth: 48,
+                            }}
+                          >
+                            {item.icon}
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={item.label}
+                            primaryTypographyProps={{
+                              fontWeight: activeTab === item.index ? 700 : 600,
+                              fontSize: '0.95rem',
+                              color: activeTab === item.index ? 'black' : 
+                                item.label === 'Logout' ? 'error.main' : 'inherit',
+                            }}
+                          />
+                        </ListItemButton>
+                      </Tooltip>
+                    </ListItem>
+                  ))}
+                </List>
+              </Box>
+            )}
+
+            {/* Quick Actions Section */}
+            {isAuthenticated && (
+              <Box sx={{ mb: 3 }}>
+                <Typography 
+                  variant="overline" 
+                  sx={{ 
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: 'text.secondary',
+                    letterSpacing: '0.1em',
+                    mb: 1.5,
+                    display: 'block',
+                    px: 2
+                  }}
+                >
+                  Quick Actions
+                </Typography>
+                <Stack spacing={1}>
+                  <Paper
+                    elevation={0}
                     sx={{
-                      borderRadius: 3,
-                      minHeight: 56,
-                      px: 3,
-                      py: 1.5,
-                      backgroundColor: activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'transparent',
-                      background: activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'transparent',
-                      color: activeTab === item.index ? 'black' : 'text.primary',
-                      boxShadow: activeTab === item.index ? '0 4px 16px rgba(0, 255, 136, 0.3)' : 'none',
-                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      p: 2,
+                      borderRadius: 2,
+                      background: darkMode 
+                        ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.06) 0%, rgba(136, 255, 0, 0.03) 100%)'
+                        : 'linear-gradient(135deg, rgba(0, 204, 102, 0.04) 0%, rgba(102, 204, 0, 0.02) 100%)',
+                      border: `1px solid ${darkMode ? 'rgba(0, 255, 136, 0.15)' : 'rgba(0, 204, 102, 0.15)'}`,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease-in-out',
                       '&:hover': {
                         transform: 'translateX(4px)',
-                        backgroundColor: activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'rgba(0, 255, 136, 0.08)',
-                        background: activeTab === item.index ? 'linear-gradient(135deg, #00ff88, #00cc66)' : 'rgba(0, 255, 136, 0.08)',
-                      },
-                      '&.Mui-selected': {
-                        backgroundColor: 'transparent',
-                        background: 'linear-gradient(135deg, #00ff88, #00cc66)',
-                        '&:hover': {
-                          backgroundColor: 'transparent',
-                          background: 'linear-gradient(135deg, #33ff99, #33d477)',
-                        },
-                      },
+                        boxShadow: '0 4px 16px rgba(0, 255, 136, 0.2)',
+                      }
+                    }}
+                    onClick={() => {
+                      setActiveTab(8); // AI Data Mapper
+                      if (isMobile) setDrawerOpen(false);
                     }}
                   >
-                    <ListItemIcon
-                      sx={{
-                        color: activeTab === item.index ? 'black' : 'text.secondary',
-                        minWidth: 48,
-                      }}
-                    >
-                      {item.icon}
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={item.label}
-                      primaryTypographyProps={{
-                        fontWeight: activeTab === item.index ? 700 : 600,
-                        fontSize: '0.95rem',
-                        color: activeTab === item.index ? 'black' : 'inherit',
-                      }}
-                    />
-                  </ListItemButton>
-                </ListItem>
-              ))}
-            </List>
+                    <Stack direction="row" alignItems="center" spacing={2}>
+                      <AIIcon sx={{ color: 'primary.main', fontSize: 20 }} />
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                          Import Data
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                          Upload & map job data
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </Paper>
+                  
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      borderRadius: 2,
+                      background: darkMode 
+                        ? 'linear-gradient(135deg, rgba(0, 255, 136, 0.06) 0%, rgba(136, 255, 0, 0.03) 100%)'
+                        : 'linear-gradient(135deg, rgba(0, 204, 102, 0.04) 0%, rgba(102, 204, 0, 0.02) 100%)',
+                      border: `1px solid ${darkMode ? 'rgba(0, 255, 136, 0.15)' : 'rgba(0, 204, 102, 0.15)'}`,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease-in-out',
+                      '&:hover': {
+                        transform: 'translateX(4px)',
+                        boxShadow: '0 4px 16px rgba(0, 255, 136, 0.2)',
+                      }
+                    }}
+                    onClick={() => {
+                      setActiveTab(1); // Clustering
+                      if (isMobile) setDrawerOpen(false);
+                    }}
+                  >
+                    <Stack direction="row" alignItems="center" spacing={2}>
+                      <SpeedIcon sx={{ color: 'primary.main', fontSize: 20 }} />
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                          Auto Cluster
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                          Optimize job routes
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </Paper>
+                </Stack>
+              </Box>
+            )}
             
             <Divider sx={{ my: 3, borderColor: darkMode ? 'rgba(0, 255, 136, 0.12)' : 'rgba(0, 204, 102, 0.12)' }} />
             
