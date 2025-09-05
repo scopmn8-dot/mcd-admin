@@ -7,6 +7,8 @@ import ProcessedJobs from "./pages/ProcessedJobs";
 import BatchPlans from "./pages/BatchPlans";
 import Users from "./pages/Users";
 import AIDataMapper from "./pages/AIDataMapper";
+import DriverGPS from "./pages/DriverGPS";
+import DriverTracker from "./pages/DriverTracker";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import './styles/modern.css';
@@ -64,7 +66,9 @@ import {
   WorkOutline as JobsIcon,
   Analytics as AnalyticsIcon,
   Assignment as AssignmentIcon,
-  Speed as SpeedIcon
+  Speed as SpeedIcon,
+  Navigation as NavigationIcon,
+  TrackChanges as TrackChangesIcon
 } from "@mui/icons-material";
 
 const drawerWidth = 280; // Increased for better visual balance
@@ -363,6 +367,14 @@ function App() {
         { label: 'Batch Plans', icon: <AssignmentIcon />, index: 4, description: 'Batch planning and execution' },
       ]
     },
+    // GPS & Tracking
+    {
+      section: 'GPS & Tracking',
+      items: [
+        { label: 'Driver GPS Portal', icon: <NavigationIcon />, index: 11, description: 'Driver navigation and job tracking' },
+        { label: 'Driver Tracker', icon: <TrackChangesIcon />, index: 12, description: 'Admin real-time driver monitoring' },
+      ]
+    },
     // Team & Resources
     {
       section: 'Team & Resources',
@@ -551,6 +563,8 @@ function App() {
       case 4: return <BatchPlans />;
       case 8: return <AIDataMapper />;
       case 10: return <Users />;
+      case 11: return <DriverGPS />;
+      case 12: return <DriverTracker />;
       case 7: // Logout
         handleLogout();
         return null;

@@ -4773,6 +4773,294 @@ app.post('/api/jobs/enforce-sequencing', async (req, res) => {
   }
 });
 
+// Driver Authentication and GPS Tracking Endpoints
+
+// Driver locations storage (in production, use a proper database)
+let driverLocations = {};
+let driverSessions = {};
+
+// Driver login endpoint
+app.post('/api/driver/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    // Get drivers from Google Sheets
+    const driversData = await getCachedData('Drivers', () => 
+      sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Drivers!A:Z',
+      })
+    );
+
+    if (!driversData || !driversData.values) {
+      return res.status(500).json({ error: 'Unable to fetch drivers data' });
+    }
+
+    const [headers, ...rows] = driversData.values;
+    const drivers = rows.map(row => {
+      const driver = {};
+      headers.forEach((header, index) => {
+        driver[header.toLowerCase().replace(/\s+/g, '_')] = row[index] || '';
+      });
+      return driver;
+    });
+
+    // Find driver by username (could be driver ID, email, or name)
+    const driver = drivers.find(d => 
+      d.driver_id === username || 
+      d.email === username || 
+      d.name?.toLowerCase() === username.toLowerCase()
+    );
+
+    if (!driver) {
+      return res.status(401).json({ error: 'Driver not found' });
+    }
+
+    // Simple password check (in production, use proper hashing)
+    // For demo, use driver_id as password or a default password
+    const validPassword = password === driver.driver_id || 
+                         password === 'driver123' || 
+                         password === driver.password;
+
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+
+    // Generate session token
+    const token = Buffer.from(`${driver.driver_id}:${Date.now()}`).toString('base64');
+    
+    // Store session
+    driverSessions[token] = {
+      driverId: driver.driver_id,
+      name: driver.name,
+      email: driver.email,
+      loginTime: new Date().toISOString()
+    };
+
+    res.json({
+      token,
+      driver: {
+        id: driver.driver_id,
+        name: driver.name,
+        email: driver.email,
+        phone: driver.phone
+      }
+    });
+
+  } catch (error) {
+    console.error('Driver login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Get driver's assigned jobs
+app.get('/api/driver/jobs/:driverId', async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const session = driverSessions[token];
+    
+    if (!session || session.driverId !== driverId) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    // Get jobs from Google Sheets
+    const jobsData = await getCachedData('Jobs', () => 
+      sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Jobs!A:Z',
+      })
+    );
+
+    if (!jobsData || !jobsData.values) {
+      return res.json([]);
+    }
+
+    const [headers, ...rows] = jobsData.values;
+    const jobs = rows.map(row => {
+      const job = {};
+      headers.forEach((header, index) => {
+        job[header.toLowerCase().replace(/\s+/g, '_')] = row[index] || '';
+      });
+      return job;
+    }).filter(job => job.driver_id === driverId);
+
+    res.json(jobs);
+
+  } catch (error) {
+    console.error('Error fetching driver jobs:', error);
+    res.status(500).json({ error: 'Error fetching jobs' });
+  }
+});
+
+// Update driver location
+app.post('/api/driver/location', (req, res) => {
+  try {
+    const { lat, lng, speed, timestamp, activeJobId } = req.body;
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const session = driverSessions[token];
+    
+    if (!session) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    // Update driver location
+    driverLocations[session.driverId] = {
+      lat,
+      lng,
+      speed: speed || 0,
+      timestamp,
+      activeJobId,
+      lastUpdate: new Date().toISOString()
+    };
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Error updating location:', error);
+    res.status(500).json({ error: 'Error updating location' });
+  }
+});
+
+// Complete pickup
+app.post('/api/driver/pickup-complete', async (req, res) => {
+  try {
+    const { jobId, location, timestamp } = req.body;
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const session = driverSessions[token];
+    
+    if (!session) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    // In a real implementation, update the job status in Google Sheets
+    console.log(`Pickup completed for job ${jobId} by driver ${session.driverId}`);
+    
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Error completing pickup:', error);
+    res.status(500).json({ error: 'Error completing pickup' });
+  }
+});
+
+// Complete delivery
+app.post('/api/driver/delivery-complete', async (req, res) => {
+  try {
+    const { jobId, location, timestamp } = req.body;
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const session = driverSessions[token];
+    
+    if (!session) {
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    // In a real implementation, update the job status to completed in Google Sheets
+    console.log(`Delivery completed for job ${jobId} by driver ${session.driverId}`);
+    
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Error completing delivery:', error);
+    res.status(500).json({ error: 'Error completing delivery' });
+  }
+});
+
+// Admin: Get all drivers tracking data
+app.get('/api/admin/drivers-tracking', authMiddleware, async (req, res) => {
+  try {
+    // Get drivers from Google Sheets
+    const driversData = await getCachedData('Drivers', () => 
+      sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Drivers!A:Z',
+      })
+    );
+
+    if (!driversData || !driversData.values) {
+      return res.json({ drivers: [], stats: { totalDrivers: 0, activeDrivers: 0, onRoute: 0, completedToday: 0 } });
+    }
+
+    const [headers, ...rows] = driversData.values;
+    const drivers = rows.map(row => {
+      const driver = {};
+      headers.forEach((header, index) => {
+        driver[header.toLowerCase().replace(/\s+/g, '_')] = row[index] || '';
+      });
+      return driver;
+    });
+
+    // Enhance with location and session data
+    const enhancedDrivers = drivers.map(driver => {
+      const location = driverLocations[driver.driver_id];
+      const isOnline = Object.values(driverSessions).some(session => session.driverId === driver.driver_id);
+      
+      let status = 'offline';
+      if (isOnline) {
+        if (location && location.activeJobId) {
+          status = 'on_route';
+        } else {
+          status = 'active';
+        }
+      }
+
+      return {
+        id: driver.driver_id,
+        name: driver.name,
+        email: driver.email,
+        phone: driver.phone,
+        status,
+        currentLocation: location ? { lat: location.lat, lng: location.lng } : null,
+        currentSpeed: location ? location.speed : 0,
+        lastUpdate: location ? location.lastUpdate : null,
+        currentJob: location ? location.activeJobId : null,
+        jobProgress: location && location.activeJobId ? 'In transit' : null
+      };
+    });
+
+    // Calculate stats
+    const stats = {
+      totalDrivers: drivers.length,
+      activeDrivers: enhancedDrivers.filter(d => d.status === 'active' || d.status === 'on_route').length,
+      onRoute: enhancedDrivers.filter(d => d.status === 'on_route').length,
+      completedToday: 0 // This would require tracking completed jobs
+    };
+
+    res.json({
+      drivers: enhancedDrivers,
+      stats
+    });
+
+  } catch (error) {
+    console.error('Error fetching drivers tracking data:', error);
+    res.status(500).json({ error: 'Error fetching tracking data' });
+  }
+});
+
 // Serve React frontend in production
 if (process.env.NODE_ENV === 'production') {
   // Serve static files from the React build
