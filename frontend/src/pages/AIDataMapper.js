@@ -62,22 +62,22 @@ const AIDataMapper = () => {
   const [realHeaders, setRealHeaders] = useState({});
   const [loadingHeaders, setLoadingHeaders] = useState(false);
 
-  // Known column structures for different sheets
+  // Known column structures for different sheets - using real Google Sheets headers
   const sheetStructures = {
     'Motorway Jobs': {
-      required: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
-      optional: ['Driver', 'Status', 'Notes', 'Job Type', 'Collection Postcode', 'Delivery Postcode'],
-      description: 'Motorway delivery jobs sheet'
+      required: ['job_id', 'VRM', 'collection_date', 'delivery_date', 'collection_full_address', 'delivery_full_address'],
+      optional: ['date_time_created', 'dealer', 'date_time_assigned', 'collection_postcode', 'collection_town_city', 'collection_address_1', 'collection_address_2', 'collection_contact_first_name', 'collection_contact_surname', 'collection_email', 'collection_phone_number', 'preferred_seller_collection_dates', 'delivery_postcode', 'delivery_town_city', 'delivery_address_1', 'delivery_address_2', 'delivery_contact_first_name', 'delivery_contact_surname', 'delivery_email', 'delivery_phone_number', 'job_type', 'distance', 'vehicle_year', 'vehicle_gearbox', 'vehicle_fuel', 'vehicle_colour', 'vehicle_vin', 'vehicle_mileage'],
+      description: 'Motorway delivery jobs sheet with vehicle details'
     },
     'ATMoves Jobs': {
-      required: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
-      optional: ['Driver', 'Status', 'Notes', 'Job Type', 'Collection Postcode', 'Delivery Postcode'],
-      description: 'ATMoves delivery jobs sheet'
+      required: ['job_id', 'VRM', 'collection_date', 'delivery_date', 'collection_full_address', 'delivery_full_address'],
+      optional: ['date_time_created', 'dealer', 'date_time_assigned', 'collection_postcode', 'collection_town_city', 'collection_address_1', 'collection_address_2', 'collection_contact_first_name', 'collection_contact_surname', 'collection_email', 'collection_phone_number', 'preferred_seller_collection_dates', 'delivery_postcode', 'delivery_town_city', 'delivery_address_1', 'delivery_address_2', 'delivery_contact_first_name', 'delivery_contact_surname', 'delivery_email', 'delivery_phone_number', 'job_type', 'distance', 'vehicle_year', 'vehicle_gearbox', 'vehicle_fuel', 'vehicle_colour', 'vehicle_vin', 'vehicle_mileage'],
+      description: 'ATMoves delivery jobs sheet with vehicle details'
     },
     'Private Customer Jobs': {
-      required: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
-      optional: ['Driver', 'Status', 'Notes', 'Job Type', 'Collection Postcode', 'Delivery Postcode'],
-      description: 'Private customer delivery jobs sheet'
+      required: ['job_id', 'VRM', 'collection_date', 'delivery_date', 'collection_full_address', 'delivery_full_address'],
+      optional: ['date_time_created', 'dealer', 'date_time_assigned', 'collection_postcode', 'collection_town_city', 'collection_address_1', 'collection_address_2', 'collection_contact_first_name', 'collection_contact_surname', 'collection_email', 'collection_phone_number', 'preferred_seller_collection_dates', 'delivery_postcode', 'delivery_town_city', 'delivery_address_1', 'delivery_address_2', 'delivery_contact_first_name', 'delivery_contact_surname', 'delivery_email', 'delivery_phone_number', 'job_type', 'distance', 'vehicle_year', 'vehicle_gearbox', 'vehicle_fuel', 'vehicle_colour', 'vehicle_vin', 'vehicle_mileage'],
+      description: 'Private customer delivery jobs sheet with vehicle details'
     },
     'Driver Availability': {
       required: ['Driver Name', 'Date', 'Available'],
@@ -199,10 +199,22 @@ const AIDataMapper = () => {
           }
         });
 
-        // Special keyword detection
-        if (normalizedHeader.includes('ref') || normalizedHeader.includes('id')) {
+        // Special keyword detection for vehicle transport industry
+        if (normalizedHeader.includes('job') && (normalizedHeader.includes('id') || normalizedHeader.includes('ref'))) {
           if (sheetName.includes('Jobs') || sheetName === 'Processed Jobs') {
-            mapping[index] = 'Job Reference';
+            mapping[index] = 'job_id';
+            score += 3;
+          }
+        }
+        if (normalizedHeader.includes('vrm') || normalizedHeader.includes('registration')) {
+          if (sheetName.includes('Jobs')) {
+            mapping[index] = 'VRM';
+            score += 3;
+          }
+        }
+        if (normalizedHeader.includes('dealer') || normalizedHeader.includes('dealership')) {
+          if (sheetName.includes('Jobs')) {
+            mapping[index] = 'dealer';
             score += 2;
           }
         }
@@ -214,19 +226,108 @@ const AIDataMapper = () => {
         }
         if (normalizedHeader.includes('date') || normalizedHeader.includes('time')) {
           if (normalizedHeader.includes('collect')) {
-            mapping[index] = 'Collection Date';
-            score += 2;
+            mapping[index] = 'collection_date';
+            score += 3;
           } else if (normalizedHeader.includes('deliver')) {
-            mapping[index] = 'Delivery Date';
+            mapping[index] = 'delivery_date';
+            score += 3;
+          } else if (normalizedHeader.includes('created')) {
+            mapping[index] = 'date_time_created';
+            score += 2;
+          } else if (normalizedHeader.includes('assigned')) {
+            mapping[index] = 'date_time_assigned';
             score += 2;
           }
         }
         if (normalizedHeader.includes('address') || normalizedHeader.includes('location')) {
           if (normalizedHeader.includes('collect') || normalizedHeader.includes('pickup')) {
-            mapping[index] = 'Collection Address';
-            score += 2;
+            if (normalizedHeader.includes('full')) {
+              mapping[index] = 'collection_full_address';
+              score += 3;
+            } else if (normalizedHeader.includes('1')) {
+              mapping[index] = 'collection_address_1';
+              score += 2;
+            } else if (normalizedHeader.includes('2')) {
+              mapping[index] = 'collection_address_2';
+              score += 2;
+            } else {
+              mapping[index] = 'collection_full_address';
+              score += 2;
+            }
           } else if (normalizedHeader.includes('deliver') || normalizedHeader.includes('drop')) {
-            mapping[index] = 'Delivery Address';
+            if (normalizedHeader.includes('full')) {
+              mapping[index] = 'delivery_full_address';
+              score += 3;
+            } else if (normalizedHeader.includes('1')) {
+              mapping[index] = 'delivery_address_1';
+              score += 2;
+            } else if (normalizedHeader.includes('2')) {
+              mapping[index] = 'delivery_address_2';
+              score += 2;
+            } else {
+              mapping[index] = 'delivery_full_address';
+              score += 2;
+            }
+          }
+        }
+        if (normalizedHeader.includes('postcode') || normalizedHeader.includes('postal')) {
+          if (normalizedHeader.includes('collect')) {
+            mapping[index] = 'collection_postcode';
+            score += 2;
+          } else if (normalizedHeader.includes('deliver')) {
+            mapping[index] = 'delivery_postcode';
+            score += 2;
+          }
+        }
+        if (normalizedHeader.includes('contact') || normalizedHeader.includes('phone') || normalizedHeader.includes('email')) {
+          if (normalizedHeader.includes('collect')) {
+            if (normalizedHeader.includes('first') || normalizedHeader.includes('fname')) {
+              mapping[index] = 'collection_contact_first_name';
+              score += 2;
+            } else if (normalizedHeader.includes('surname') || normalizedHeader.includes('last')) {
+              mapping[index] = 'collection_contact_surname';
+              score += 2;
+            } else if (normalizedHeader.includes('email')) {
+              mapping[index] = 'collection_email';
+              score += 2;
+            } else if (normalizedHeader.includes('phone')) {
+              mapping[index] = 'collection_phone_number';
+              score += 2;
+            }
+          } else if (normalizedHeader.includes('deliver')) {
+            if (normalizedHeader.includes('first') || normalizedHeader.includes('fname')) {
+              mapping[index] = 'delivery_contact_first_name';
+              score += 2;
+            } else if (normalizedHeader.includes('surname') || normalizedHeader.includes('last')) {
+              mapping[index] = 'delivery_contact_surname';
+              score += 2;
+            } else if (normalizedHeader.includes('email')) {
+              mapping[index] = 'delivery_email';
+              score += 2;
+            } else if (normalizedHeader.includes('phone')) {
+              mapping[index] = 'delivery_phone_number';
+              score += 2;
+            }
+          }
+        }
+        if (normalizedHeader.includes('vehicle') || normalizedHeader.includes('car')) {
+          if (normalizedHeader.includes('year')) {
+            mapping[index] = 'vehicle_year';
+            score += 2;
+          } else if (normalizedHeader.includes('gearbox') || normalizedHeader.includes('transmission')) {
+            mapping[index] = 'vehicle_gearbox';
+            score += 2;
+          } else if (normalizedHeader.includes('fuel')) {
+            mapping[index] = 'vehicle_fuel';
+            score += 2;
+          } else if (normalizedHeader.includes('colour') || normalizedHeader.includes('color')) {
+            mapping[index] = 'vehicle_colour';
+            score += 2;
+          } else if (normalizedHeader.includes('vin')) {
+            mapping[index] = 'vehicle_vin';
+            score += 2;
+          } else if (normalizedHeader.includes('mileage') || normalizedHeader.includes('miles')) {
+            mapping[index] = 'vehicle_mileage';
             score += 2;
           }
         }
@@ -356,10 +457,10 @@ const AIDataMapper = () => {
 
 Examples:
 
-📋 For Job Sheets:
-Job Reference	Customer Name	Collection Date	Delivery Date	Collection Address	Delivery Address
-JOB001	ABC Company	2024-01-15	2024-01-16	123 Main St, London	456 Oak Ave, Birmingham
-JOB002	XYZ Ltd	2024-01-16	2024-01-17	789 High St, Manchester	321 Elm Rd, Liverpool
+📋 For Vehicle Transport Jobs:
+job_id	VRM	dealer	collection_date	delivery_date	collection_full_address	delivery_full_address	vehicle_year	vehicle_fuel
+JOB001	AB12 CDE	Ford Main Dealer	2024-01-15	2024-01-16	123 Main St, London, SW1A 1AA	456 Oak Ave, Birmingham, B1 1AA	2020	Petrol
+JOB002	FG34 HIJ	BMW Dealership	2024-01-16	2024-01-17	789 High St, Manchester, M1 1AA	321 Elm Rd, Liverpool, L1 1AA	2019	Diesel
 
 🚗 For Driver Availability:
 Driver Name	Date	Available	Notes

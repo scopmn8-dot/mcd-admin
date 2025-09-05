@@ -4664,86 +4664,32 @@ app.post('/api/ai-data-import', authMiddleware, async (req, res) => {
     console.log(`🤖 AI Import: Processing ${data.length} rows for ${targetSheet}`);
     console.log('🗂️ Column mapping:', mapping);
 
-    // Define sheet configurations with their expected columns
+    // Define sheet configurations with their expected columns - using real Google Sheets headers
     const sheetConfigs = {
       'Motorway Jobs': {
         sheetName: SHEETS.motorway.name,
-        requiredColumns: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
-        columnMap: {
-          'Job Reference': 'job_id',
-          'Customer Name': 'customer_name',
-          'Collection Date': 'collection_date',
-          'Delivery Date': 'delivery_date',
-          'Collection Address': 'collection_address',
-          'Delivery Address': 'delivery_address',
-          'Collection Postcode': 'collection_postcode',
-          'Delivery Postcode': 'delivery_postcode',
-          'Driver': 'selected_driver',
-          'Status': 'status',
-          'Notes': 'notes',
-          'Job Type': 'job_type'
-        }
+        requiredColumns: ['job_id', 'VRM', 'collection_date', 'delivery_date', 'collection_full_address', 'delivery_full_address'],
+        allColumns: ['job_id', 'VRM', 'date_time_created', 'dealer', 'date_time_assigned', 'collection_full_address', 'collection_postcode', 'collection_town_city', 'collection_address_1', 'collection_address_2', 'collection_contact_first_name', 'collection_contact_surname', 'collection_email', 'collection_phone_number', 'preferred_seller_collection_dates', 'delivery_full_address', 'delivery_postcode', 'delivery_town_city', 'delivery_address_1', 'delivery_address_2', 'delivery_contact_first_name', 'delivery_contact_surname', 'delivery_email', 'delivery_phone_number', 'job_type', 'distance', 'collection_date', 'delivery_date', 'vehicle_year', 'vehicle_gearbox', 'vehicle_fuel', 'vehicle_colour', 'vehicle_vin', 'vehicle_mileage']
       },
       'ATMoves Jobs': {
         sheetName: SHEETS.atmoves.name,
-        requiredColumns: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
-        columnMap: {
-          'Job Reference': 'job_id',
-          'Customer Name': 'customer_name',
-          'Collection Date': 'collection_date',
-          'Delivery Date': 'delivery_date',
-          'Collection Address': 'collection_address',
-          'Delivery Address': 'delivery_address',
-          'Collection Postcode': 'collection_postcode',
-          'Delivery Postcode': 'delivery_postcode',
-          'Driver': 'selected_driver',
-          'Status': 'status',
-          'Notes': 'notes',
-          'Job Type': 'job_type'
-        }
+        requiredColumns: ['job_id', 'VRM', 'collection_date', 'delivery_date', 'collection_full_address', 'delivery_full_address'],
+        allColumns: ['job_id', 'VRM', 'date_time_created', 'dealer', 'date_time_assigned', 'collection_full_address', 'collection_postcode', 'collection_town_city', 'collection_address_1', 'collection_address_2', 'collection_contact_first_name', 'collection_contact_surname', 'collection_email', 'collection_phone_number', 'preferred_seller_collection_dates', 'delivery_full_address', 'delivery_postcode', 'delivery_town_city', 'delivery_address_1', 'delivery_address_2', 'delivery_contact_first_name', 'delivery_contact_surname', 'delivery_email', 'delivery_phone_number', 'job_type', 'distance', 'collection_date', 'delivery_date', 'vehicle_year', 'vehicle_gearbox', 'vehicle_fuel', 'vehicle_colour', 'vehicle_vin', 'vehicle_mileage']
       },
       'Private Customer Jobs': {
         sheetName: SHEETS.privateCustomers.name,
-        requiredColumns: ['Job Reference', 'Customer Name', 'Collection Date', 'Delivery Date', 'Collection Address', 'Delivery Address'],
-        columnMap: {
-          'Job Reference': 'job_id',
-          'Customer Name': 'customer_name',
-          'Collection Date': 'collection_date',
-          'Delivery Date': 'delivery_date',
-          'Collection Address': 'collection_address',
-          'Delivery Address': 'delivery_address',
-          'Collection Postcode': 'collection_postcode',
-          'Delivery Postcode': 'delivery_postcode',
-          'Driver': 'selected_driver',
-          'Status': 'status',
-          'Notes': 'notes',
-          'Job Type': 'job_type'
-        }
+        requiredColumns: ['job_id', 'VRM', 'collection_date', 'delivery_date', 'collection_full_address', 'delivery_full_address'],
+        allColumns: ['job_id', 'VRM', 'date_time_created', 'dealer', 'date_time_assigned', 'collection_full_address', 'collection_postcode', 'collection_town_city', 'collection_address_1', 'collection_address_2', 'collection_contact_first_name', 'collection_contact_surname', 'collection_email', 'collection_phone_number', 'preferred_seller_collection_dates', 'delivery_full_address', 'delivery_postcode', 'delivery_town_city', 'delivery_address_1', 'delivery_address_2', 'delivery_contact_first_name', 'delivery_contact_surname', 'delivery_email', 'delivery_phone_number', 'job_type', 'distance', 'collection_date', 'delivery_date', 'vehicle_year', 'vehicle_gearbox', 'vehicle_fuel', 'vehicle_colour', 'vehicle_vin', 'vehicle_mileage']
       },
       'Driver Availability': {
         sheetName: SHEETS.drivers.name,
         requiredColumns: ['Driver Name', 'Date', 'Available'],
-        columnMap: {
-          'Driver Name': 'driver_name',
-          'Date': 'date',
-          'Available': 'available',
-          'Notes': 'notes',
-          'Region': 'region',
-          'Preferred Jobs': 'preferred_jobs'
-        }
+        allColumns: ['Driver Name', 'Date', 'Available', 'Notes', 'Region', 'Preferred Jobs']
       },
       'Processed Jobs': {
         sheetName: SHEETS.processedJobs.name,
         requiredColumns: ['Job Reference', 'Driver', 'Status', 'Date Completed'],
-        columnMap: {
-          'Job Reference': 'job_id',
-          'Driver': 'driver_name',
-          'Status': 'status',
-          'Date Completed': 'completion_date',
-          'Notes': 'notes',
-          'Completion Time': 'completion_time',
-          'Customer Feedback': 'customer_feedback'
-        }
+        allColumns: ['Job Reference', 'Driver', 'Status', 'Date Completed', 'Notes', 'Completion Time', 'Customer Feedback']
       }
     };
 
@@ -4784,8 +4730,13 @@ app.post('/api/ai-data-import', authMiddleware, async (req, res) => {
       });
 
       // Add auto-generated fields if needed
-      if (targetSheet.includes('Jobs') && !transformedRow['Job Reference'] && !transformedRow['job_id']) {
-        transformedRow['Job Reference'] = generateId('AI');
+      if (targetSheet.includes('Jobs') && !transformedRow['job_id']) {
+        transformedRow['job_id'] = generateId('AI');
+      }
+
+      // Add current timestamp for created field if not provided
+      if (targetSheet.includes('Jobs') && !transformedRow['date_time_created']) {
+        transformedRow['date_time_created'] = new Date().toISOString();
       }
 
       transformedRows.push(transformedRow);
