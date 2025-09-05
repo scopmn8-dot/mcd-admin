@@ -141,6 +141,7 @@ export default function Drivers() {
   const [error, setError] = useState('');
   const [redistributing, setRedistributing] = useState(false);
   const [redistributeMsg, setRedistributeMsg] = useState('');
+  const [debugInfo, setDebugInfo] = useState(null);
 
   useEffect(() => {
     fetchDrivers();
@@ -153,15 +154,47 @@ export default function Drivers() {
       
       if (response.ok) {
         const data = await response.json();
+        console.log('Drivers API response:', data);
         setDrivers(data);
         setError('');
       } else {
-        throw new Error('Failed to fetch drivers');
+        const errorText = await response.text();
+        console.error('Drivers API error:', errorText);
+        throw new Error(`Failed to fetch drivers: ${errorText}`);
       }
     } catch (err) {
+      console.error('Drivers fetch error:', err);
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const testDriversAPI = async () => {
+    try {
+      setDebugInfo('Testing...');
+      
+      // Test 1: Check available sheets
+      const sheetsResponse = await apiFetch('/api/sheets');
+      const sheetsData = sheetsResponse.ok ? await sheetsResponse.json() : null;
+      
+      // Test 2: Test different driver sheet names
+      const testResponse = await apiFetch('/api/test-drivers');
+      const testData = testResponse.ok ? await testResponse.json() : null;
+      
+      // Test 3: Try drivers API again
+      const driversResponse = await apiFetch('/api/drivers');
+      const driversData = driversResponse.ok ? await driversResponse.json() : await driversResponse.text();
+      
+      setDebugInfo({
+        availableSheets: sheetsData,
+        testResults: testData,
+        driversResult: driversData,
+        driversSuccess: driversResponse.ok
+      });
+      
+    } catch (err) {
+      setDebugInfo({ error: err.message });
     }
   };
 
@@ -209,6 +242,23 @@ export default function Drivers() {
             </Typography>
           </Box>
           <Stack direction="row" spacing={2}>
+            <Tooltip title="Debug Drivers API" arrow>
+              <span>
+                <Button
+                  variant="outlined"
+                  startIcon={<AssessmentIcon />}
+                  onClick={testDriversAPI}
+                  sx={{
+                    borderRadius: 3,
+                    px: 3,
+                    py: 1.5,
+                    fontWeight: 600,
+                  }}
+                >
+                  Debug API
+                </Button>
+              </span>
+            </Tooltip>
             <Tooltip title="Redistribute Jobs" arrow>
               <span>
                 <Button
@@ -264,6 +314,43 @@ export default function Drivers() {
           >
             {redistributeMsg}
           </Alert>
+        )}
+
+        {/* Debug Information */}
+        {debugInfo && (
+          <Paper 
+            sx={{ 
+              p: 3, 
+              mb: 2, 
+              borderRadius: 3,
+              backgroundColor: 'background.paper',
+              border: '1px solid',
+              borderColor: 'divider'
+            }}
+          >
+            <Typography variant="h6" sx={{ mb: 2, fontWeight: 700 }}>
+              🔍 Debug Information
+            </Typography>
+            <pre style={{ 
+              fontSize: '12px', 
+              overflow: 'auto', 
+              maxHeight: '400px',
+              backgroundColor: theme.palette.mode === 'dark' ? '#1a1a1a' : '#f5f5f5',
+              padding: '16px',
+              borderRadius: '8px',
+              margin: 0
+            }}>
+              {JSON.stringify(debugInfo, null, 2)}
+            </pre>
+            <Button 
+              variant="outlined" 
+              size="small" 
+              onClick={() => setDebugInfo(null)}
+              sx={{ mt: 2 }}
+            >
+              Clear Debug Info
+            </Button>
+          </Paper>
         )}
       </Box>
 

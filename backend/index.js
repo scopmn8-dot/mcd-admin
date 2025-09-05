@@ -908,33 +908,53 @@ async function fetchDriversSheet() {
   const range = `${SHEETS.drivers.name}!A1:AZ5000`; // Increased from 1000 to 5000 to accommodate more drivers
   
   incrementApiCall();
-  console.log(`👥 Fetching drivers sheet (${apiCallCount}/${API_RATE_LIMIT} this minute)`);
+  console.log(`👥 Fetching drivers sheet (${apiCallCount}/${API_RATE_LIMIT} this minute) from range: ${range}`);
   
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range,
-  });
-  const rows = res.data.values;
-  if (!rows || rows.length < 2) return [];
-  const headers = rows[0];
-  // Find postcode column (case-insensitive)
-  const postcodeCol = headers.find(h => h.toLowerCase().includes('postcode'));
-  const postcodeIdx = headers.findIndex(h => h.toLowerCase().includes('postcode'));
-  // Collect all postcodes for batch lookup
-  const postcodes = rows.slice(1).map(row => row[postcodeIdx] || "").filter(Boolean);
-  await batchLookupRegions(postcodes);
-  return rows.slice(1).map(row => {
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = row[i] || ""; });
-    // Add region info if postcode exists
-    if (postcodeIdx !== -1 && row[postcodeIdx]) {
-      const regionInfo = lookupRegion(row[postcodeIdx]) || postcodeApiCache[(row[postcodeIdx] || '').trim().toUpperCase()] || {};
-      obj.region = regionInfo.region || '';
-    } else {
-      obj.region = '';
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range,
+    });
+    
+    const rows = res.data.values;
+    console.log(`📊 Drivers sheet response: ${rows ? rows.length : 0} rows found`);
+    
+    if (!rows || rows.length < 2) {
+      console.log(`⚠️ Drivers sheet has insufficient data: ${rows ? rows.length : 0} rows`);
+      return [];
     }
-    return obj;
-  });
+    
+    const headers = rows[0];
+    console.log(`📋 Drivers sheet headers: ${headers.join(', ')}`);
+    
+    // Find postcode column (case-insensitive)
+    const postcodeCol = headers.find(h => h.toLowerCase().includes('postcode'));
+    const postcodeIdx = headers.findIndex(h => h.toLowerCase().includes('postcode'));
+    
+    // Collect all postcodes for batch lookup
+    const postcodes = rows.slice(1).map(row => row[postcodeIdx] || "").filter(Boolean);
+    await batchLookupRegions(postcodes);
+    
+    const drivers = rows.slice(1).map(row => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = row[i] || ""; });
+      // Add region info if postcode exists
+      if (postcodeIdx !== -1 && row[postcodeIdx]) {
+        const regionInfo = lookupRegion(row[postcodeIdx]) || postcodeApiCache[(row[postcodeIdx] || '').trim().toUpperCase()] || {};
+        obj.region = regionInfo.region || '';
+      } else {
+        obj.region = '';
+      }
+      return obj;
+    });
+    
+    console.log(`✅ Processed ${drivers.length} drivers successfully`);
+    return drivers;
+    
+  } catch (error) {
+    console.error(`❌ Error fetching drivers sheet:`, error.message);
+    throw new Error(`Failed to fetch drivers sheet: ${error.message}`);
+  }
 }
 // API to get drivers
 app.get('/api/drivers', async (req, res) => {
@@ -942,8 +962,59 @@ app.get('/api/drivers', async (req, res) => {
     const drivers = await fetchDriversSheet();
     res.json(drivers);
   } catch (e) {
+    console.error('❌ Error fetching drivers:', e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+// API to list all available sheets in the spreadsheet
+app.get('/api/sheets', async (req, res) => {
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    const sheetList = meta.data.sheets.map(sheet => ({
+      id: sheet.properties.sheetId,
+      title: sheet.properties.title,
+      index: sheet.properties.index,
+      rowCount: sheet.properties.gridProperties?.rowCount || 0,
+      columnCount: sheet.properties.gridProperties?.columnCount || 0
+    }));
+    res.json(sheetList);
+  } catch (e) {
+    console.error('❌ Error fetching sheet list:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Test endpoint to check drivers sheet with different names
+app.get('/api/test-drivers', async (req, res) => {
+  const potentialNames = ['Drivers', 'Driver', 'drivers', 'DRIVERS', 'Sheet1', 'Sheet2', 'Sheet3', 'Sheet4'];
+  const results = [];
+  
+  for (const name of potentialNames) {
+    try {
+      const range = `${name}!A1:AZ10`;
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range,
+      });
+      
+      results.push({
+        sheetName: name,
+        success: true,
+        rowCount: response.data.values?.length || 0,
+        headers: response.data.values?.[0] || [],
+        sampleData: response.data.values?.slice(1, 3) || []
+      });
+    } catch (error) {
+      results.push({
+        sheetName: name,
+        success: false,
+        error: error.message
+      });
+    }
+  }
+  
+  res.json(results);
 });
 
 async function getCachedData(forceRefresh = false) {
