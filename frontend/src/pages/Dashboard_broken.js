@@ -41,8 +41,6 @@ import {
 } from "@mui/icons-material";
 import AddRowModal from "../components/AddRowModal";
 // JobCompletionButton removed — complete-job flow is handled automatically
-import DriverQueueViewer from "../components/DriverQueueViewer";
-import DriverJobAssignments from "../components/DriverJobAssignments";
 
 const columns = [
   "job_id", "VRM", "date_time_created", "dealer", "date_time_assigned",

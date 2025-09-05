@@ -44,8 +44,6 @@ import {
 } from "@mui/icons-material";
 import AddRowModal from "../components/AddRowModal";
 // JobCompletionButton removed — complete-job flow is handled automatically
-import DriverQueueViewer from "../components/DriverQueueViewer";
-import DriverJobAssignments from "../components/DriverJobAssignments";
 /* kept Grid from @mui/material above */
 
 const columns = [
@@ -82,13 +80,6 @@ const sheetTabs = [
     icon: <GroupIcon />, 
     color: "#ec4899",
     description: "Customer deliveries"
-  },
-  { 
-    label: "Assignments", 
-    key: "driverAssignments", 
-    icon: <AssessmentIcon />, 
-    color: "#10b981",
-    description: "Driver assignments"
   },
 ];
 
@@ -294,8 +285,6 @@ export default function Dashboard() {
   const [addOpen, setAddOpen] = useState(false);
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [autoAssignMsg, setAutoAssignMsg] = useState("");
-  const [assigningDrivers, setAssigningDrivers] = useState(false);
-  const [assignDriversMsg, setAssignDriversMsg] = useState("");
   const [clearingJobs, setClearingJobs] = useState(false);
   const [clearJobsMsg, setClearJobsMsg] = useState("");
   const [showActions, setShowActions] = useState(!isMobile);
@@ -407,7 +396,7 @@ export default function Dashboard() {
 
   const handleAdd = async (row) => {
     const sheetKey = sheetTabs[activeTab]?.key;
-    if (!sheetKey || sheetKey === 'driverAssignments') return;
+    if (!sheetKey) return;
     
   await apiFetch(`/api/${sheetKey}/add`, {
       method: "POST",
@@ -438,31 +427,6 @@ export default function Dashboard() {
       setAutoAssignMsg(e.message);
     } finally {
       setAutoAssigning(false);
-    }
-  };
-
-  const handleAssignDrivers = async () => {
-    setAssigningDrivers(true);
-    setAssignDriversMsg("");
-    try {
-  const res = await apiFetch("/api/assign-jobs-with-sequencing", { method: "POST" });
-      const contentType = res.headers.get("content-type");
-      if (!res.ok) {
-        if (contentType && contentType.includes("application/json")) {
-          const err = await res.json();
-          throw new Error(err.error || "Error");
-        } else {
-          const text = await res.text();
-          throw new Error(text);
-        }
-      }
-      const data = await res.json();
-      setAssignDriversMsg(`Successfully assigned ${data.jobsAssigned || 0} jobs to ${data.driversAffected || 0} drivers with proper sequencing.`);
-      fetchAll();
-    } catch (e) {
-      setAssignDriversMsg(e.message);
-    } finally {
-      setAssigningDrivers(false);
     }
   };
 
@@ -579,13 +543,9 @@ export default function Dashboard() {
               <Button variant="contained" color="primary" onClick={handleAutoAssign} disabled={autoAssigning} sx={{ borderRadius: 10 }}>
                 {autoAssigning ? 'Running...' : 'Auto Cluster & Assign'}
               </Button>
-              <Button variant="outlined" onClick={handleAssignDrivers} disabled={assigningDrivers} sx={{ borderRadius: 10 }}>
-                {assigningDrivers ? 'Assigning...' : 'Assign Drivers'}
-              </Button>
             </Stack>
           </Box>
           <Stack direction="row" spacing={2} sx={{ mt: { xs: 2, md: 0 } }}>
-            <DriverQueueViewer />
             <Tooltip title="Sync with Google Sheets" arrow>
               <span>
                 <IconButton 
@@ -747,7 +707,6 @@ export default function Dashboard() {
                   color="#ef4444"
                   loading={clearingJobs}
                   onClick={handleClearAllJobs}
-                  disabled={activeTab === 3}
                 />
               </Grid>
             </Grid>
@@ -756,7 +715,7 @@ export default function Dashboard() {
       </Card>
 
       {/* Enhanced Alerts */}
-      {(autoAssignMsg || assignDriversMsg || clearJobsMsg || syncMsg) && (
+      {(autoAssignMsg || clearJobsMsg || syncMsg) && (
         <Box sx={{ mb: 3 }}>
           {syncMsg && (
             <Alert 
@@ -790,22 +749,6 @@ export default function Dashboard() {
               onClose={() => setAutoAssignMsg("")}
             >
               {autoAssignMsg}
-            </Alert>
-          )}
-          {assignDriversMsg && (
-            <Alert 
-              severity={assignDriversMsg.includes("Successfully") ? "success" : "error"} 
-              sx={{ 
-                borderRadius: 3,
-                fontSize: '0.95rem',
-                fontWeight: 500,
-                '& .MuiAlert-icon': {
-                  fontSize: '1.5rem',
-                },
-              }}
-              onClose={() => setAssignDriversMsg("")}
-            >
-              {assignDriversMsg}
             </Alert>
           )}
           {clearJobsMsg && (
@@ -919,11 +862,7 @@ export default function Dashboard() {
           overflow: 'hidden', 
           p: 0,
         }}>
-          {activeTab === 3 ? (
-            <Box sx={{ p: 3 }}>
-              <DriverJobAssignments />
-            </Box>
-          ) : currentData.error ? (
+          {currentData.error ? (
             <Box sx={{ p: 3 }}>
               <Alert 
                 severity="error" 

@@ -2,13 +2,10 @@ import { apiFetch } from './api';
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import Dashboard from "./pages/Dashboard";
 import Clustering from "./pages/Clustering";
-import Drivers from "./pages/Drivers";
 import ProcessedJobs from "./pages/ProcessedJobs";
 import BatchPlans from "./pages/BatchPlans";
 import Users from "./pages/Users";
 import AIDataMapper from "./pages/AIDataMapper";
-import DriverGPS from "./pages/DriverGPS";
-import DriverTracker from "./pages/DriverTracker";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import './styles/modern.css';
@@ -44,7 +41,6 @@ import {
   Menu as MenuIcon,
   Dashboard as DashboardIcon,
   AccountTree as ClusteringIcon,
-  DirectionsCar as DriversIcon,
   Brightness4 as DarkModeIcon,
   Brightness7 as LightModeIcon,
   Settings as SettingsIcon,
@@ -59,16 +55,13 @@ import {
   ExitToApp as LogoutIcon,
   NotificationsActive as NotificationsActiveIcon,
   LocalShipping as DeliveryIcon,
-  DriveEta as CarIcon,
   SmartToy as AIIcon,
   Login as LoginIcon,
   PersonAdd as RegisterIcon,
   WorkOutline as JobsIcon,
   Analytics as AnalyticsIcon,
   Assignment as AssignmentIcon,
-  Speed as SpeedIcon,
-  Navigation as NavigationIcon,
-  TrackChanges as TrackChangesIcon
+  Speed as SpeedIcon
 } from "@mui/icons-material";
 
 const drawerWidth = 280; // Increased for better visual balance
@@ -367,19 +360,10 @@ function App() {
         { label: 'Batch Plans', icon: <AssignmentIcon />, index: 4, description: 'Batch planning and execution' },
       ]
     },
-    // GPS & Tracking
-    {
-      section: 'GPS & Tracking',
-      items: [
-        { label: 'Driver GPS Portal', icon: <NavigationIcon />, index: 11, description: 'Driver navigation and job tracking' },
-        { label: 'Driver Tracker', icon: <TrackChangesIcon />, index: 12, description: 'Admin real-time driver monitoring' },
-      ]
-    },
     // Team & Resources
     {
       section: 'Team & Resources',
       items: [
-        { label: 'Drivers', icon: <DriversIcon />, index: 2, description: 'Driver management and assignments' },
         { label: 'Users', icon: <PeopleIcon />, index: 10, description: 'User account management' },
       ]
     }
@@ -558,13 +542,10 @@ function App() {
     switch (activeTab) {
       case 0: return <Dashboard />;
       case 1: return <Clustering />;
-      case 2: return <Drivers />;
       case 3: return <ProcessedJobs />;
       case 4: return <BatchPlans />;
       case 8: return <AIDataMapper />;
       case 10: return <Users />;
-      case 11: return <DriverGPS />;
-      case 12: return <DriverTracker />;
       case 7: // Logout
         handleLogout();
         return null;

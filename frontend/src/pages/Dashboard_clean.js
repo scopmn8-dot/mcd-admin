@@ -42,8 +42,6 @@ import {
 } from "@mui/icons-material";
 import AddRowModal from "../components/AddRowModal";
 // JobCompletionButton removed — complete-job flow is handled automatically
-import DriverQueueViewer from "../components/DriverQueueViewer";
-import DriverJobAssignments from "../components/DriverJobAssignments";
 
 // Dynamically generate columns from the first job in the current data
 function getColumns(data) {
@@ -74,13 +72,6 @@ const sheetTabs = [
     icon: <GroupIcon />, 
     color: "#ec4899",
     description: "Customer deliveries"
-  },
-  { 
-    label: "Assignments", 
-    key: "driverAssignments", 
-    icon: <AssessmentIcon />, 
-    color: "#10b981",
-    description: "Driver assignments"
   },
 ];
 
@@ -253,7 +244,7 @@ export default function Dashboard() {
 
   const handleAdd = async (row) => {
     const sheetKey = sheetTabs[activeTab]?.key;
-    if (!sheetKey || sheetKey === 'driverAssignments') return;
+    if (!sheetKey) return;
     
   await apiFetch(`/api/${sheetKey}/add`, {
       method: "POST",
@@ -339,7 +330,6 @@ export default function Dashboard() {
           </Box>
           <Stack direction="row" spacing={1}>
             {/* JobCompletionButton removed */}
-            <DriverQueueViewer />
             <Tooltip title="Refresh Data">
               <span>
                 <IconButton
@@ -547,9 +537,7 @@ export default function Dashboard() {
       {/* Main Content with Proper Scrolling */}
       <Card sx={{ borderRadius: 2, flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 2 }}>
-          {activeTab === 3 ? (
-            <DriverJobAssignments />
-          ) : currentData.error ? (
+          {currentData.error ? (
             <Alert severity="error" sx={{ borderRadius: 2 }}>
               {currentData.error}
             </Alert>
