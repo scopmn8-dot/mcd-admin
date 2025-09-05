@@ -4760,13 +4760,13 @@ app.post('/api/ai-data-import', authMiddleware, async (req, res) => {
       const row = data[i];
       const transformedRow = {};
       
-      // Map each field according to the configuration
-      Object.entries(config.columnMap).forEach(([displayName, internalName]) => {
-        if (row[displayName] !== undefined) {
-          let value = row[displayName];
+      // Direct mapping - use the column mapping as provided by frontend
+      Object.keys(row).forEach(sourceColumn => {
+        if (row[sourceColumn] !== undefined && row[sourceColumn] !== '') {
+          let value = row[sourceColumn];
           
           // Data validation and transformation
-          if (displayName.includes('Date') && value) {
+          if (sourceColumn.toLowerCase().includes('date') && value) {
             // Try to parse date formats
             const date = new Date(value);
             if (!isNaN(date.getTime())) {
@@ -4774,31 +4774,21 @@ app.post('/api/ai-data-import', authMiddleware, async (req, res) => {
             }
           }
           
-          if (displayName === 'Available' && value) {
+          if (sourceColumn.toLowerCase().includes('available') && value) {
             // Normalize boolean values
             value = ['yes', 'true', '1', 'available', 'y'].includes(value.toString().toLowerCase()) ? 'Yes' : 'No';
           }
           
-          transformedRow[internalName] = value;
+          transformedRow[sourceColumn] = value;
         }
       });
 
-      // Add auto-generated fields
-      if (config.columnMap['Job Reference'] && !transformedRow.job_id) {
-        transformedRow.job_id = generateId('AI');
+      // Add auto-generated fields if needed
+      if (targetSheet.includes('Jobs') && !transformedRow['Job Reference'] && !transformedRow['job_id']) {
+        transformedRow['Job Reference'] = generateId('AI');
       }
 
-      // Validate required fields
-      const missingFields = config.requiredColumns.filter(reqField => {
-        const internalField = config.columnMap[reqField];
-        return !transformedRow[internalField];
-      });
-
-      if (missingFields.length > 0) {
-        errors.push(`Row ${i + 1}: Missing required fields: ${missingFields.join(', ')}`);
-      } else {
-        transformedRows.push(transformedRow);
-      }
+      transformedRows.push(transformedRow);
     }
 
     if (errors.length > 0 && transformedRows.length === 0) {
@@ -4824,11 +4814,11 @@ app.post('/api/ai-data-import', authMiddleware, async (req, res) => {
           break;
         }
 
-        // Convert internal format back to sheet format for insertion
+        // Convert to sheet format for insertion (direct mapping)
         const sheetRow = {};
-        Object.entries(config.columnMap).forEach(([displayName, internalName]) => {
-          if (row[internalName] !== undefined) {
-            sheetRow[displayName] = row[internalName];
+        Object.keys(row).forEach(columnName => {
+          if (row[columnName] !== undefined) {
+            sheetRow[columnName] = row[columnName];
           }
         });
 
@@ -4866,6 +4856,65 @@ app.post('/api/ai-data-import', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('❌ AI Import error:', error);
     res.status(500).json({ error: `Import failed: ${error.message}` });
+  }
+});
+
+// API: Get actual column headers from a specific sheet
+app.get('/api/sheets/:sheetType/headers', authMiddleware, async (req, res) => {
+  try {
+    const { sheetType } = req.params;
+    
+    // Map sheet types to actual sheet names
+    const sheetMapping = {
+      'motorway': SHEETS.motorway.name,
+      'atmoves': SHEETS.atmoves.name,
+      'privateCustomers': SHEETS.privateCustomers.name,
+      'drivers': SHEETS.drivers.name,
+      'processedJobs': SHEETS.processedJobs.name
+    };
+
+    const sheetName = sheetMapping[sheetType];
+    if (!sheetName) {
+      return res.status(400).json({ error: `Invalid sheet type: ${sheetType}` });
+    }
+
+    // Apply rate limiting
+    if (!canMakeApiCall()) {
+      const resetTime = new Date(apiCallResetTime).toLocaleTimeString();
+      return res.status(429).json({ 
+        error: `Rate limit exceeded. Try again after ${resetTime}` 
+      });
+    }
+
+    console.log(`📋 Fetching headers for sheet: ${sheetName}`);
+
+    // Get the first row (headers) from the sheet
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${sheetName}!1:1`, // First row only
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    incrementApiCall();
+
+    const headers = response.data.values?.[0] || [];
+    
+    console.log(`✅ Retrieved ${headers.length} headers from ${sheetName}:`, headers);
+
+    res.json({
+      success: true,
+      sheetName,
+      sheetType,
+      headers,
+      totalColumns: headers.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching sheet headers:', error);
+    res.status(500).json({ 
+      error: `Failed to fetch headers: ${error.message}`,
+      sheetType: req.params.sheetType
+    });
   }
 });
 

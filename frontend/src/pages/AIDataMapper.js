@@ -59,6 +59,8 @@ const AIDataMapper = () => {
   const [columnMapping, setColumnMapping] = useState({});
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
   const [sheets, setSheets] = useState([]);
+  const [realHeaders, setRealHeaders] = useState({});
+  const [loadingHeaders, setLoadingHeaders] = useState(false);
 
   // Known column structures for different sheets
   const sheetStructures = {
@@ -93,6 +95,46 @@ const AIDataMapper = () => {
     // Set available sheets
     setSheets(Object.keys(sheetStructures));
   }, []);
+
+  // Fetch real headers when target sheet changes
+  useEffect(() => {
+    if (targetSheet) {
+      fetchRealHeaders(targetSheet);
+    }
+  }, [targetSheet]);
+
+  const fetchRealHeaders = async (sheetType) => {
+    setLoadingHeaders(true);
+    try {
+      // Map display names to API sheet types
+      const sheetTypeMap = {
+        'Motorway Jobs': 'motorway',
+        'ATMoves Jobs': 'atmoves', 
+        'Private Customer Jobs': 'privateCustomers',
+        'Driver Availability': 'drivers',
+        'Processed Jobs': 'processedJobs'
+      };
+
+      const apiSheetType = sheetTypeMap[sheetType];
+      if (!apiSheetType) {
+        console.error('Unknown sheet type:', sheetType);
+        return;
+      }
+
+      const response = await apiFetch(`/api/sheets/${apiSheetType}/headers`);
+      
+      setRealHeaders(prev => ({
+        ...prev,
+        [sheetType]: response.headers || []
+      }));
+
+    } catch (error) {
+      console.error('Error fetching headers:', error);
+      setError(`Failed to fetch headers for ${sheetType}: ${error.message}`);
+    } finally {
+      setLoadingHeaders(false);
+    }
+  };
 
   const analyzeData = () => {
     if (!rawData.trim()) {
@@ -437,7 +479,52 @@ JOB001	John Smith	Completed	2024-01-15"
                   </Select>
                 </FormControl>
 
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => fetchRealHeaders(targetSheet)}
+                    disabled={loadingHeaders || !targetSheet}
+                    startIcon={loadingHeaders ? <RefreshIcon /> : <RefreshIcon />}
+                  >
+                    {loadingHeaders ? 'Loading...' : 'Refresh Headers'}
+                  </Button>
+                  <Typography variant="caption" color="text.secondary">
+                    Get latest column headers from Google Sheets
+                  </Typography>
+                </Stack>
+
                 <Typography variant="h6" sx={{ mb: 1 }}>Column Mapping</Typography>
+                
+                {loadingHeaders && (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <RefreshIcon />
+                      <Typography>Loading real column headers from {targetSheet}...</Typography>
+                    </Stack>
+                  </Alert>
+                )}
+
+                {realHeaders[targetSheet] && realHeaders[targetSheet].length > 0 && (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2">
+                      📋 Real Sheet Headers ({realHeaders[targetSheet].length} columns):
+                    </Typography>
+                    <Box sx={{ mt: 1 }}>
+                      {realHeaders[targetSheet].map((header, index) => (
+                        <Chip 
+                          key={index} 
+                          label={header} 
+                          size="small" 
+                          sx={{ m: 0.25 }} 
+                          color="primary" 
+                          variant="outlined" 
+                        />
+                      ))}
+                    </Box>
+                  </Alert>
+                )}
+
                 {mappedData.headers.map((header, index) => (
                   <Box key={index} sx={{ mb: 1, p: 1, border: '1px solid #e0e0e0', borderRadius: 1 }}>
                     <Typography variant="body2" color="text.secondary">
@@ -450,14 +537,43 @@ JOB001	John Smith	Completed	2024-01-15"
                         displayEmpty
                       >
                         <MenuItem value="">-- Skip Column --</MenuItem>
-                        {targetSheet && sheetStructures[targetSheet] && [
-                          ...sheetStructures[targetSheet].required,
-                          ...sheetStructures[targetSheet].optional
-                        ].map(column => (
-                          <MenuItem key={column} value={column}>
-                            {column} {sheetStructures[targetSheet].required.includes(column) && '*'}
-                          </MenuItem>
-                        ))}
+                        
+                        {/* Show real headers if available */}
+                        {realHeaders[targetSheet] && realHeaders[targetSheet].length > 0 ? (
+                          realHeaders[targetSheet].map(header => (
+                            <MenuItem key={header} value={header}>
+                              <Stack direction="row" alignItems="center" spacing={1}>
+                                <span>📊</span>
+                                <Box>
+                                  <Typography variant="body2">{header}</Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Real sheet column
+                                  </Typography>
+                                </Box>
+                              </Stack>
+                            </MenuItem>
+                          ))
+                        ) : (
+                          /* Fallback to predefined structure */
+                          targetSheet && sheetStructures[targetSheet] && [
+                            ...sheetStructures[targetSheet].required,
+                            ...sheetStructures[targetSheet].optional
+                          ].map(column => (
+                            <MenuItem key={column} value={column}>
+                              <Stack direction="row" alignItems="center" spacing={1}>
+                                <span>{sheetStructures[targetSheet].required.includes(column) ? '⚠️' : '📝'}</span>
+                                <Box>
+                                  <Typography variant="body2">
+                                    {column} {sheetStructures[targetSheet].required.includes(column) && '*'}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {sheetStructures[targetSheet].required.includes(column) ? 'Required' : 'Optional'}
+                                  </Typography>
+                                </Box>
+                              </Stack>
+                            </MenuItem>
+                          ))
+                        )}
                       </Select>
                     </FormControl>
                   </Box>
