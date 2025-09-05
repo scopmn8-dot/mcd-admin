@@ -2962,6 +2962,15 @@ app.post('/api/assign-drivers-to-all', async (req, res) => {
 
           cache.timestamp = 0;
           console.log('Background: all batched updates complete.');
+          
+          // Update combined jobs sheet after all individual sheet updates
+          try {
+            console.log('Background: updating combined jobs sheet...');
+            await writeCombinedJobsSheet();
+            console.log('Background: combined jobs sheet updated successfully.');
+          } catch (combErr) {
+            console.error('Background: failed to update combined jobs sheet:', combErr.response?.data || combErr.message || combErr);
+          }
             } catch (e) {
               console.error('Background batch update loop error:', e.response?.data || e.message || e);
             }
@@ -4630,6 +4639,15 @@ app.post('/api/assign-jobs-with-sequencing', async (req, res) => {
           
           cache.timestamp = 0; // Invalidate cache
           console.log('🎉 Background: all sheet updates complete!');
+          
+          // Update combined jobs sheet after all individual sheet updates
+          try {
+            console.log('Background: updating combined jobs sheet...');
+            await writeCombinedJobsSheet();
+            console.log('Background: combined jobs sheet updated successfully.');
+          } catch (combErr) {
+            console.error('Background: failed to update combined jobs sheet:', combErr.response?.data || combErr.message || combErr);
+          }
         } catch (e) {
           console.error('❌ Background update error:', e.message);
         }

@@ -36,7 +36,8 @@ import {
   Chip,
   Menu,
   MenuItem,
-  Badge
+  Badge,
+  Button
 } from "@mui/material";
 import {
   Menu as MenuIcon,
@@ -450,6 +451,7 @@ function App() {
     clustering: 'pending', // 'pending' | 'running' | 'success' | 'error'
     assignDrivers: 'pending',
     assignIds: 'pending',
+    combinedJobs: 'pending',
   });
   const autoRunRef = useRef(null);
 
@@ -457,10 +459,10 @@ function App() {
     if (autoRunRef.current?.running) return; // avoid overlapping runs
     autoRunRef.current = { running: true };
     setAutoRunStatus('running');
-  setAutoRunSteps({ clustering: 'running', assignDrivers: 'pending', assignIds: 'pending' });
+    setAutoRunSteps({ clustering: 'running', assignDrivers: 'pending', assignIds: 'pending', combinedJobs: 'pending' });
     try {
       // 1) Auto cluster & assign
-  const clusterRes = await apiFetch('/api/auto-cluster-assign', { method: 'POST' });
+      const clusterRes = await apiFetch('/api/auto-cluster-assign', { method: 'POST' });
       if (!clusterRes.ok) {
         const t = await clusterRes.text();
         setAutoRunSteps(prev => ({ ...prev, clustering: 'error' }));
@@ -469,7 +471,7 @@ function App() {
       setAutoRunSteps(prev => ({ ...prev, clustering: 'success', assignDrivers: 'running' }));
 
       // 2) Assign drivers with sequencing
-  const assignRes = await apiFetch('/api/assign-jobs-with-sequencing', { method: 'POST' });
+      const assignRes = await apiFetch('/api/assign-jobs-with-sequencing', { method: 'POST' });
       if (!assignRes.ok) {
         const t = await assignRes.text();
         setAutoRunSteps(prev => ({ ...prev, assignDrivers: 'error' }));
@@ -478,13 +480,22 @@ function App() {
       setAutoRunSteps(prev => ({ ...prev, assignDrivers: 'success', assignIds: 'running' }));
 
       // 3) Auto-assign ids (job/cluster/order numbers)
-  const idsRes = await apiFetch('/api/jobs/auto-assign-ids', { method: 'POST' });
+      const idsRes = await apiFetch('/api/jobs/auto-assign-ids', { method: 'POST' });
       if (!idsRes.ok) {
         const t = await idsRes.text();
         setAutoRunSteps(prev => ({ ...prev, assignIds: 'error' }));
         throw new Error(`ids error: ${t}`);
       }
-      setAutoRunSteps(prev => ({ ...prev, assignIds: 'success' }));
+      setAutoRunSteps(prev => ({ ...prev, assignIds: 'success', combinedJobs: 'running' }));
+
+      // 4) Create/update combined jobs sheet
+      const combinedRes = await apiFetch('/api/jobs/ensure-combined-sheet', { method: 'POST' });
+      if (!combinedRes.ok) {
+        const t = await combinedRes.text();
+        setAutoRunSteps(prev => ({ ...prev, combinedJobs: 'error' }));
+        throw new Error(`combined jobs error: ${t}`);
+      }
+      setAutoRunSteps(prev => ({ ...prev, combinedJobs: 'success' }));
 
       setAutoRunStatus('idle');
       setLastAutoRun(new Date());
@@ -496,6 +507,30 @@ function App() {
       setAutoRunStatus('error');
     } finally {
       autoRunRef.current = { running: false };
+    }
+  };
+
+  // Manual combined jobs update function
+  const updateCombinedJobs = async () => {
+    try {
+      console.log('Manually updating combined jobs sheet...');
+      setAutoRunSteps(prev => ({ ...prev, combinedJobs: 'running' }));
+      
+      const combinedRes = await apiFetch('/api/jobs/ensure-combined-sheet', { method: 'POST' });
+      if (!combinedRes.ok) {
+        const t = await combinedRes.text();
+        setAutoRunSteps(prev => ({ ...prev, combinedJobs: 'error' }));
+        throw new Error(`Combined jobs error: ${t}`);
+      }
+      
+      setAutoRunSteps(prev => ({ ...prev, combinedJobs: 'success' }));
+      console.log('Combined jobs sheet updated successfully');
+      
+      // Trigger a refresh of the current view
+      window.dispatchEvent(new Event('combinedJobs:updated'));
+    } catch (e) {
+      console.error('Manual combined jobs update failed', e);
+      setAutoRunSteps(prev => ({ ...prev, combinedJobs: 'error' }));
     }
   };
 
@@ -706,10 +741,22 @@ function App() {
                         } sx={{ height: 6, borderRadius: 2 }} />
                       </Box>
                     </Box>
-                    <Box sx={{ ml: 1, display: 'flex', gap: 1 }}>
-                      <Chip label={autoRunSteps.clustering} size="small" color={autoRunSteps.clustering === 'running' ? 'info' : autoRunSteps.clustering === 'success' ? 'success' : autoRunSteps.clustering === 'error' ? 'error' : 'default'} />
-                      <Chip label={autoRunSteps.assignDrivers} size="small" color={autoRunSteps.assignDrivers === 'running' ? 'info' : autoRunSteps.assignDrivers === 'success' ? 'success' : autoRunSteps.assignDrivers === 'error' ? 'error' : 'default'} />
-                      <Chip label={autoRunSteps.assignIds} size="small" color={autoRunSteps.assignIds === 'running' ? 'info' : autoRunSteps.assignIds === 'success' ? 'success' : autoRunSteps.assignIds === 'error' ? 'error' : 'default'} />
+                    <Box sx={{ ml: 1, display: 'flex', gap: 1, flexDirection: 'column' }}>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Chip label={autoRunSteps.clustering} size="small" color={autoRunSteps.clustering === 'running' ? 'info' : autoRunSteps.clustering === 'success' ? 'success' : autoRunSteps.clustering === 'error' ? 'error' : 'default'} />
+                        <Chip label={autoRunSteps.assignDrivers} size="small" color={autoRunSteps.assignDrivers === 'running' ? 'info' : autoRunSteps.assignDrivers === 'success' ? 'success' : autoRunSteps.assignDrivers === 'error' ? 'error' : 'default'} />
+                        <Chip label={autoRunSteps.assignIds} size="small" color={autoRunSteps.assignIds === 'running' ? 'info' : autoRunSteps.assignIds === 'success' ? 'success' : autoRunSteps.assignIds === 'error' ? 'error' : 'default'} />
+                        <Chip label={autoRunSteps.combinedJobs} size="small" color={autoRunSteps.combinedJobs === 'running' ? 'info' : autoRunSteps.combinedJobs === 'success' ? 'success' : autoRunSteps.combinedJobs === 'error' ? 'error' : 'default'} />
+                      </Box>
+                      <Button 
+                        variant="outlined" 
+                        size="small" 
+                        onClick={updateCombinedJobs}
+                        disabled={autoRunSteps.combinedJobs === 'running'}
+                        sx={{ whiteSpace: 'nowrap', fontSize: '0.7rem' }}
+                      >
+                        Update Combined Jobs
+                      </Button>
                     </Box>
                   </Box>
                 </Paper>
