@@ -1915,6 +1915,7 @@ app.post('/api/redistribute-jobs', async (req, res) => {
           if (jobToReassign) {
             // Reassign the job
             jobToReassign.selected_driver = driverWithoutJob;
+            jobToReassign.date_time_assigned = new Date().toISOString(); // Update assignment time for reassignment
             
             // Update counters
             overloadedDriver.count--;
@@ -2232,6 +2233,7 @@ app.post('/api/assign-drivers-to-all', async (req, res) => {
       if (bestJobIndex >= 0) {
         const job = availableJobs[bestJobIndex];
         job.selected_driver = driver.name;
+        job.date_time_assigned = new Date().toISOString();
         driverJobCount[driver.name]++;
         
         // Set initial job properties with proper sequencing
@@ -2368,6 +2370,9 @@ app.post('/api/assign-drivers-to-all', async (req, res) => {
       // Update job with assigned driver and proper sequencing
       const assignedDriver = chosen ? chosen.dc.name : '';
       job.selected_driver = assignedDriver;
+      if (assignedDriver) {
+        job.date_time_assigned = new Date().toISOString();
+      }
       
       // Set job properties with proper order_no and status
       if (assignedDriver && driverJobCount.hasOwnProperty(assignedDriver)) {
@@ -2803,8 +2808,16 @@ app.post('/api/assign-drivers-to-all', async (req, res) => {
         // final fallback: if still no chosen (no drivers at all), set empty string
         cluster.driver = chosen ? (chosen.dc.name || chosen.dc.Name || '') : '';
         console.log(`Cluster ${cluster.clusterId}: region='${region}' -> assigned driver='${cluster.driver || 'NONE'}' (reason=${reason}${chosen && chosen.dist !== Infinity ? `,dist=${chosen.dist.toFixed(2)}mi` : ''})`);
-        // Attach cluster_id and selected driver
-        cluster.jobs.forEach(j => { j.cluster_id = cluster.clusterId; j.selected_driver = cluster.driver; });
+        
+        // Attach cluster_id, selected driver, and assignment timestamp
+        const assignmentTime = cluster.driver ? new Date().toISOString() : '';
+        cluster.jobs.forEach(j => { 
+          j.cluster_id = cluster.clusterId; 
+          j.selected_driver = cluster.driver;
+          if (cluster.driver) {
+            j.date_time_assigned = assignmentTime;
+          }
+        });
 
         // Assign forward/return flags and intra-cluster order deterministically
         if (cluster.jobs.length === 2) {
@@ -4401,13 +4414,17 @@ app.post('/api/assign-jobs-with-sequencing', async (req, res) => {
         const startOrder = (currentDriverJobCounts[assignedDriver] || 0) + 1;
 
         // Assign forward then return
+        const assignmentTime = new Date().toISOString();
+        
         forwardJob.selected_driver = assignedDriver;
+        forwardJob.date_time_assigned = assignmentTime;
         forwardJob.order_no = startOrder;
         forwardJob.driver_order_sequence = startOrder;
         forwardJob.job_status = startOrder === 1 ? 'active' : 'pending';
         forwardJob.job_active = startOrder === 1 ? 'true' : 'false';
 
         returnJob.selected_driver = assignedDriver;
+        returnJob.date_time_assigned = assignmentTime;
         returnJob.order_no = startOrder + 1;
         returnJob.driver_order_sequence = startOrder + 1;
         returnJob.job_status = 'pending';
@@ -4494,6 +4511,7 @@ app.post('/api/assign-jobs-with-sequencing', async (req, res) => {
 
           const assignedDriver = chosen.dc.name;
           job.selected_driver = assignedDriver;
+          job.date_time_assigned = new Date().toISOString(); // Set assignment timestamp
           const nextOrderNo = (currentDriverJobCounts[assignedDriver] || 0) + 1;
           job.order_no = nextOrderNo;
           job.driver_order_sequence = nextOrderNo;
@@ -4842,6 +4860,12 @@ app.post('/api/assign-job-to-driver', async (req, res) => {
     updateData[0][headers[driverColIdx]] = driverName;
     if (sequenceColIdx !== -1) updateData[0][headers[sequenceColIdx]] = nextSequence.toString();
     if (flagColIdx !== -1) updateData[0][headers[flagColIdx]] = forwardReturnFlag;
+
+    // Set assignment timestamp
+    const assignmentTimeIdx = headers.findIndex(h => h === 'date_time_assigned');
+    if (assignmentTimeIdx !== -1) {
+      updateData[0][headers[assignmentTimeIdx]] = new Date().toISOString();
+    }
 
     // Ensure regions are populated from postcodes
     const collectionRegionIdx = headers.findIndex(h => h === 'collection_region');
@@ -5371,6 +5395,96 @@ app.get('/api/admin/drivers-tracking', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error fetching drivers tracking data:', error);
     res.status(500).json({ error: 'Error fetching tracking data' });
+  }
+});
+
+// Manual update for date_time_assigned field
+app.post('/api/update-assignment-time', async (req, res) => {
+  try {
+    const { jobId, sourceSheet, dateTime } = req.body;
+
+    if (!jobId || !sourceSheet) {
+      return res.status(400).json({ error: 'jobId and sourceSheet are required' });
+    }
+
+    console.log(`🕒 Manually updating assignment time for job ${jobId} in ${sourceSheet}`);
+
+    // 1. Get current data
+    const data = await getCachedData();
+    
+    // Find the job in the appropriate sheet
+    let jobData = null;
+    let sheetName = '';
+    let sheetData = null;
+    
+    switch (sourceSheet) {
+      case 'motorway':
+        jobData = data.motorway.find(j => j.job_id === jobId);
+        sheetName = SHEETS.motorway.name;
+        sheetData = data.motorway;
+        break;
+      case 'atmoves':
+        jobData = data.atmoves.find(j => j.job_id === jobId);
+        sheetName = SHEETS.atmoves.name;
+        sheetData = data.atmoves;
+        break;
+      case 'private-customers':
+        jobData = data.privateCustomers.find(j => j.job_id === jobId);
+        sheetName = SHEETS.privateCustomers.name;
+        sheetData = data.privateCustomers;
+        break;
+      default:
+        return res.status(400).json({ error: 'Invalid sourceSheet. Must be: motorway, atmoves, or private-customers' });
+    }
+
+    if (!jobData) {
+      return res.status(404).json({ error: `Job ${jobId} not found in ${sourceSheet} sheet` });
+    }
+
+    // 2. Update the job data
+    const rowIdx = sheetData.findIndex(j => j.job_id === jobId) + 2; // Account for header row
+    const headers = Object.keys(jobData);
+    const assignmentTimeIdx = headers.findIndex(h => h === 'date_time_assigned');
+
+    if (assignmentTimeIdx === -1) {
+      return res.status(404).json({ error: 'date_time_assigned column not found in sheet' });
+    }
+
+    // Use provided dateTime or current timestamp
+    const assignmentTime = dateTime || new Date().toISOString();
+    
+    // Protect this row from auto-overwrite
+    protectFromAutoOverwrite(sheetName, rowIdx, 10 * 60 * 1000); // 10 minutes protection
+
+    // Update the job data
+    jobData.date_time_assigned = assignmentTime;
+    const rowData = headers.map(header => jobData[header] || '');
+
+    // 3. Update Google Sheets
+    const lastCol = String.fromCharCode(65 + headers.length - 1);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${sheetName}!A${rowIdx}:${lastCol}${rowIdx}`,
+      valueInputOption: 'USER_ENTERED',
+      resource: { values: [rowData] },
+    });
+
+    // Invalidate cache
+    cache.timestamp = 0;
+
+    console.log(`✅ Updated assignment time for job ${jobId} to ${assignmentTime}`);
+
+    res.json({
+      success: true,
+      message: `Assignment time updated for job ${jobId}`,
+      jobId,
+      dateTimeAssigned: assignmentTime,
+      protected: true
+    });
+
+  } catch (e) {
+    console.error('❌ Assignment time update error:', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
