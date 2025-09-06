@@ -911,6 +911,13 @@ async function calculateDriverJobStats(drivers) {
     
     console.log(`📋 Processing ${allJobs.length} total jobs across all sheets`);
     
+    // Debug: Log sample jobs to understand data structure
+    if (allJobs.length > 0) {
+      console.log('📊 Sample job data structure:');
+      console.log('First job fields:', Object.keys(allJobs[0]));
+      console.log('First job with driver assignment:', allJobs.find(j => j.selected_driver || j.driver));
+    }
+    
     // Create a map to store job counts for each driver
     const driverStats = {};
     
@@ -927,24 +934,38 @@ async function calculateDriverJobStats(drivers) {
     
     // Count jobs for each driver
     allJobs.forEach(job => {
-      const assignedDriver = job.assigned_driver || job.driver || job.Driver || job['Assigned Driver'] || '';
+      // Use the correct field name: selected_driver (not assigned_driver)
+      const assignedDriver = job.selected_driver || job.driver || job.Driver || job['Assigned Driver'] || '';
       
       if (assignedDriver && driverStats[assignedDriver]) {
         driverStats[assignedDriver].totalJobs++;
         
-        // Determine job status
-        const status = (job.status || job.Status || '').toLowerCase();
-        const isCompleted = status.includes('completed') || status.includes('done') || status.includes('finished');
-        const isPending = status.includes('pending') || status.includes('assigned') || status.includes('in progress');
+        // Determine job status - check different possible status field names
+        const status = (job.status || job.Status || job.job_status || job['Job Status'] || '').toLowerCase();
+        const isCompleted = status.includes('completed') || status.includes('done') || status.includes('finished') || status.includes('delivered');
+        const isPending = status.includes('pending') || status.includes('assigned') || status.includes('in progress') || status.includes('collecting');
+        
+        // Debug logging for first few jobs
+        if (driverStats[assignedDriver].totalJobs <= 3) {
+          console.log(`🔍 Job for ${assignedDriver}: status="${status}", completed=${isCompleted}, pending=${isPending}`);
+        }
         
         if (isCompleted) {
           driverStats[assignedDriver].completedJobs++;
-        } else if (isPending || status === 'active') {
+        } else if (isPending) {
           driverStats[assignedDriver].pendingJobs++;
         } else if (assignedDriver && !isCompleted) {
           // If driver is assigned but status is unclear, consider it active
           driverStats[assignedDriver].activeJobs++;
         }
+      }
+    });
+    
+    // Debug: Log calculated statistics
+    console.log('📊 Calculated driver job statistics:');
+    Object.entries(driverStats).forEach(([driver, stats]) => {
+      if (stats.totalJobs > 0) {
+        console.log(`${driver}: Total=${stats.totalJobs}, Active=${stats.activeJobs}, Pending=${stats.pendingJobs}, Completed=${stats.completedJobs}`);
       }
     });
     
