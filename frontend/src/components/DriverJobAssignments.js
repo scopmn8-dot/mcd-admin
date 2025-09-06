@@ -338,19 +338,27 @@ export default function DriverJobAssignments() {
           No drivers have been assigned jobs yet. Use the "Assign Drivers" button in the main dashboard to start automatic assignments.
         </Alert>
       ) : (
-        <TableContainer component={Paper} sx={{ mt: 2 }}>
-          <Table sx={{ minWidth: 650 }}>
+        <TableContainer 
+          component={Paper} 
+          sx={{ 
+            mt: 2, 
+            maxWidth: '100%',
+            overflow: 'auto',
+            maxHeight: 'calc(100vh - 300px)'
+          }}
+        >
+          <Table sx={{ minWidth: 650, tableLayout: 'fixed' }}>
             <TableHead>
               <TableRow sx={{ bgcolor: 'grey.50' }}>
-                <TableCell sx={{ fontWeight: 600 }}>Driver</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 600 }}>Region</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 600 }}>Total Jobs</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 600 }}>Active</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 600 }}>Completed</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 600 }}>Forward</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 600 }}>Return</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 600 }}>Issues</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 600 }}>Actions</TableCell>
+                <TableCell sx={{ fontWeight: 600, width: '200px' }}>Driver</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, width: '120px' }}>Region</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, width: '100px' }}>Total Jobs</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, width: '80px' }}>Active</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, width: '100px' }}>Completed</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, width: '80px' }}>Forward</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, width: '80px' }}>Return</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, width: '80px' }}>Issues</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, width: '120px' }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -364,59 +372,67 @@ export default function DriverJobAssignments() {
                     }}
                     onClick={() => handleToggleExpand(driver.driverName)}
                   >
-                    <TableCell>
+                    <TableCell sx={{ width: '200px' }}>
                       <Stack direction="row" alignItems="center" spacing={1}>
                         <IconButton size="small">
                           {expandedDriver === driver.driverName ? <ArrowUpIcon /> : <ArrowDownIcon />}
                         </IconButton>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                        <Typography 
+                          variant="subtitle2" 
+                          sx={{ 
+                            fontWeight: 600,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
                           {driver.driverName}
                         </Typography>
                       </Stack>
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ width: '120px' }}>
                       <Chip 
                         label={getDriverRegion(driver.driverName)} 
                         size="small"
                         variant="outlined"
                       />
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ width: '100px' }}>
                       <Chip 
                         label={driver.totalJobs} 
                         color="primary"
                         size="small"
                       />
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ width: '80px' }}>
                       <Chip 
                         label={driver.activeJobs} 
                         color="warning"
                         size="small"
                       />
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ width: '100px' }}>
                       <Chip 
                         label={driver.completedJobs} 
                         color="success"
                         size="small"
                       />
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ width: '80px' }}>
                       <Chip 
                         label={driver.forwardJobs} 
                         color="info"
                         size="small"
                       />
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ width: '80px' }}>
                       <Chip 
                         label={driver.returnJobs} 
                         color="secondary"
                         size="small"
                       />
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ width: '80px' }}>
                       {driver.invalidAssignments > 0 ? (
                         <Chip 
                           label={driver.invalidAssignments} 
@@ -433,7 +449,7 @@ export default function DriverJobAssignments() {
                         />
                       )}
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ width: '120px' }}>
                       <Button
                         size="small"
                         startIcon={<RefreshIcon />}
@@ -455,19 +471,19 @@ export default function DriverJobAssignments() {
                             Job Details for {driver.driverName}
                           </Typography>
                           
-                          <TableContainer>
-                            <Table size="small">
+                          <TableContainer sx={{ maxHeight: '400px', overflow: 'auto' }}>
+                            <Table size="small" sx={{ tableLayout: 'fixed' }}>
                               <TableHead>
                                 <TableRow sx={{ bgcolor: 'grey.100' }}>
-                                  <TableCell sx={{ fontWeight: 600 }}>Job ID</TableCell>
-                                  <TableCell sx={{ fontWeight: 600 }}>VRM</TableCell>
-                                  <TableCell sx={{ fontWeight: 600 }}>Source</TableCell>
-                                  <TableCell sx={{ fontWeight: 600 }}>Collection</TableCell>
-                                  <TableCell sx={{ fontWeight: 600 }}>Delivery</TableCell>
-                                  <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                                  <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
-                                  <TableCell sx={{ fontWeight: 600 }}>Sequence</TableCell>
-                                  <TableCell align="center" sx={{ fontWeight: 600 }}>Actions</TableCell>
+                                  <TableCell sx={{ fontWeight: 600, width: '120px' }}>Job ID</TableCell>
+                                  <TableCell sx={{ fontWeight: 600, width: '100px' }}>VRM</TableCell>
+                                  <TableCell sx={{ fontWeight: 600, width: '120px' }}>Source</TableCell>
+                                  <TableCell sx={{ fontWeight: 600, width: '120px' }}>Collection</TableCell>
+                                  <TableCell sx={{ fontWeight: 600, width: '120px' }}>Delivery</TableCell>
+                                  <TableCell sx={{ fontWeight: 600, width: '100px' }}>Status</TableCell>
+                                  <TableCell sx={{ fontWeight: 600, width: '100px' }}>Type</TableCell>
+                                  <TableCell sx={{ fontWeight: 600, width: '80px' }}>Sequence</TableCell>
+                                  <TableCell align="center" sx={{ fontWeight: 600, width: '120px' }}>Actions</TableCell>
                                 </TableRow>
                               </TableHead>
                               <TableBody>
@@ -479,8 +495,16 @@ export default function DriverJobAssignments() {
                                       '&:hover': { bgcolor: hasIssues(job) ? 'error.100' : 'grey.50' }
                                     }}
                                   >
-                                    <TableCell>
-                                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    <TableCell sx={{ width: '120px' }}>
+                                      <Typography 
+                                        variant="body2" 
+                                        sx={{ 
+                                          fontWeight: 600,
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                      >
                                         {job.job_id}
                                       </Typography>
                                       {hasIssues(job) && (
@@ -489,42 +513,59 @@ export default function DriverJobAssignments() {
                                         </Typography>
                                       )}
                                     </TableCell>
-                                    <TableCell>
-                                      <Typography variant="body2">
+                                    <TableCell sx={{ width: '100px' }}>
+                                      <Typography 
+                                        variant="body2"
+                                        sx={{
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                      >
                                         {job.VRM || 'N/A'}
                                       </Typography>
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell sx={{ width: '120px' }}>
                                       <Chip 
                                         label={job.source} 
                                         size="small" 
                                         variant="outlined"
                                       />
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell sx={{ width: '120px' }}>
                                       <Typography 
                                         variant="body2" 
                                         color={job.collection_postcode ? 'text.primary' : 'error'}
+                                        sx={{
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap'
+                                        }}
                                       >
                                         {job.collection_postcode || '❌ Missing'}
                                       </Typography>
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell sx={{ width: '120px' }}>
                                       <Typography 
                                         variant="body2" 
                                         color={job.delivery_postcode ? 'text.primary' : 'error'}
+                                        sx={{
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap'
+                                        }}
                                       >
                                         {job.delivery_postcode || '❌ Missing'}
                                       </Typography>
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell sx={{ width: '100px' }}>
                                       <Chip 
                                         label={job.job_status || 'pending'} 
                                         color={getStatusColor(job.job_status)} 
                                         size="small"
                                       />
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell sx={{ width: '100px' }}>
                                       {job.forward_return_flag ? (
                                         <Chip 
                                           label={job.forward_return_flag} 
@@ -537,7 +578,7 @@ export default function DriverJobAssignments() {
                                         </Typography>
                                       )}
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell sx={{ width: '80px' }}>
                                       {job.driver_order_sequence ? (
                                         <Chip 
                                           label={`#${job.driver_order_sequence}`} 
@@ -550,7 +591,7 @@ export default function DriverJobAssignments() {
                                         </Typography>
                                       )}
                                     </TableCell>
-                                    <TableCell align="center">
+                                    <TableCell align="center" sx={{ width: '120px' }}>
                                       <Stack direction="row" spacing={0.5}>
                                         <Tooltip title="Reassign to different driver">
                                           <IconButton 
