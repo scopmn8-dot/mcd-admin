@@ -11,23 +11,7 @@ import {
 } from "@mui/icons-material";
 
 export default function SheetTable({ title, columns, data, onDeleteJob, allowDelete = false }) {
-  // Define column configuration for the modern table
-  const tableColumns = useMemo(() => {
-    return columns.map(col => ({
-      key: col,
-      label: col.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-      width: getColumnWidth(col),
-      sortable: true,
-      type: getColumnType(col),
-      render: (value) => renderCellContent(value, col),
-      statusColors: getStatusColors(col),
-      maxWidth: getColumnMaxWidth(col)
-    }));
-  }, [columns]);
-
-  // Primary columns to show in main table
-  const primaryColumns = ['job_id', 'VRM', 'selected_driver', 'collection_postcode', 'delivery_postcode', 'job_status', 'forward_return_flag'];
-
+  // Helper functions defined first to avoid hoisting issues
   const getColumnWidth = (column) => {
     const widthMap = {
       'job_id': '120px',
@@ -168,6 +152,23 @@ export default function SheetTable({ title, columns, data, onDeleteJob, allowDel
   const getFlagColor = (flag) => {
     return flag === 'Forward' ? 'primary' : flag === 'Return' ? 'secondary' : 'default';
   };
+
+  // Define column configuration for the modern table
+  const tableColumns = useMemo(() => {
+    return columns.map(col => ({
+      key: col,
+      label: col.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()),
+      width: getColumnWidth(col),
+      sortable: true,
+      type: getColumnType(col),
+      render: (value) => renderCellContent(value, col),
+      statusColors: getStatusColors(col),
+      maxWidth: getColumnMaxWidth(col)
+    }));
+  }, [columns]);
+
+  // Primary columns to show in main table
+  const primaryColumns = ['job_id', 'VRM', 'selected_driver', 'collection_postcode', 'delivery_postcode', 'job_status', 'forward_return_flag'];
 
   const handleDeleteJob = async (job) => {
     const jobId = job.job_id || job['Job Reference'];
