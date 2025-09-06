@@ -1,3 +1,17 @@
+// All imports must be at the top in ES modules
+import express from 'express';
+import cors from 'cors';
+import { google } from 'googleapis';
+import fs from 'fs';
+import path from 'path';
+import multer from 'multer';
+import fetch from 'node-fetch';
+import nodemailer from 'nodemailer';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
 // Automated clustering endpoint was moved below so it is registered after app initialization.
 // See the correctly placed handler later in this file (after `const app = express();`).
 
@@ -59,8 +73,6 @@ Key Action Points:
 
 // ...existing code...
 // Place this block AFTER all imports and after 'const app = express();'
-import fetch from 'node-fetch';
-import nodemailer from 'nodemailer';
 
 // Email configuration
 const EMAIL_CONFIG = {
@@ -364,13 +376,6 @@ function isJobSheetProcessed(job) {
   const hasCluster = !!(job.cluster_id || job.clusterId);
   return hasJobId && hasDriver && hasOrder && hasCluster;
 }
-import express from 'express';
-import cors from 'cors';
-import { google } from 'googleapis';
-import fs from 'fs';
-import path from 'path';
-import multer from 'multer';
-
 
 const app = express();
 // --- LOG BUFFER PATCHING (place after app = express()) ---
@@ -419,7 +424,7 @@ app.get('/api/process-logs', (req, res) => {
 });
 // Respect platform-provided PORT (e.g., Cloud Run) with fallback
 // Cloud Run typically provides PORT as string, ensure it's a number
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
+let PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 
 // Validate port number
 if (isNaN(PORT) || PORT <= 0 || PORT > 65535) {
@@ -573,10 +578,6 @@ app.get('/ping', (req, res) => {
 });
 
 // Simple file-backed user store and auth endpoints (no DB)
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
