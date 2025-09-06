@@ -87,7 +87,7 @@ const EMAIL_CONFIG = {
 };
 
 // Create email transporter
-const emailTransporter = nodemailer.createTransporter(EMAIL_CONFIG);
+const emailTransporter = nodemailer.createTransport(EMAIL_CONFIG);
 
 // Email templates
 const EMAIL_TEMPLATES = {
