@@ -59,29 +59,74 @@ const ManualDriverAssignment = () => {
 
   const loadData = async () => {
     setLoading(true);
+    setError('');
     try {
-      // Load all jobs from all sheets
-      const [motorwayJobs, atmovesJobs, privateJobs, driversData] = await Promise.all([
+      console.log('Loading data from APIs...');
+      
+      // Load all jobs from all sheets with better error handling
+      const [motorwayResponse, atmovesResponse, privateResponse, driversResponse] = await Promise.allSettled([
         apiFetch('/api/motorway'),
         apiFetch('/api/atmoves'),
         apiFetch('/api/private-customers'),
         apiFetch('/api/drivers')
       ]);
 
-      // Combine all jobs and add source sheet info
+      // Process responses and handle errors
+      const motorwayJobs = motorwayResponse.status === 'fulfilled' ? 
+        (Array.isArray(motorwayResponse.value) ? motorwayResponse.value : []) : [];
+      const atmovesJobs = atmovesResponse.status === 'fulfilled' ? 
+        (Array.isArray(atmovesResponse.value) ? atmovesResponse.value : []) : [];
+      const privateJobs = privateResponse.status === 'fulfilled' ? 
+        (Array.isArray(privateResponse.value) ? privateResponse.value : []) : [];
+      const driversData = driversResponse.status === 'fulfilled' ? 
+        (Array.isArray(driversResponse.value) ? driversResponse.value : []) : [];
+
+      // Log any failed requests
+      if (motorwayResponse.status === 'rejected') {
+        console.error('Motorway API failed:', motorwayResponse.reason);
+      }
+      if (atmovesResponse.status === 'rejected') {
+        console.error('AT Moves API failed:', atmovesResponse.reason);
+      }
+      if (privateResponse.status === 'rejected') {
+        console.error('Private Customers API failed:', privateResponse.reason);
+      }
+      if (driversResponse.status === 'rejected') {
+        console.error('Drivers API failed:', driversResponse.reason);
+        setError('Warning: Could not load drivers list. Some functionality may be limited.');
+      }
+
+      console.log('Data loaded:', {
+        motorway: motorwayJobs.length,
+        atmoves: atmovesJobs.length,
+        private: privateJobs.length,
+        drivers: driversData.length
+      });
+
+      console.log('Data loaded:', {
+        motorway: motorwayJobs.length,
+        atmoves: atmovesJobs.length,
+        private: privateJobs.length,
+        drivers: driversData.length
+      });
+
+      // Combine all jobs and add source sheet info - ensure we're working with arrays
       const allJobs = [
-        ...motorwayJobs.map(job => ({ ...job, sourceSheet: 'motorway', sheetName: 'Motorway' })),
-        ...atmovesJobs.map(job => ({ ...job, sourceSheet: 'atmoves', sheetName: 'AT Moves' })),
-        ...privateJobs.map(job => ({ ...job, sourceSheet: 'privateCustomers', sheetName: 'Private Customers' }))
+        ...(motorwayJobs || []).map(job => ({ ...job, sourceSheet: 'motorway', sheetName: 'Motorway' })),
+        ...(atmovesJobs || []).map(job => ({ ...job, sourceSheet: 'atmoves', sheetName: 'AT Moves' })),
+        ...(privateJobs || []).map(job => ({ ...job, sourceSheet: 'privateCustomers', sheetName: 'Private Customers' }))
       ];
 
       // Filter jobs that have job_id (processed jobs)
       const processedJobs = allJobs.filter(job => job.job_id && job.job_id.trim() !== '');
 
+      console.log('Processed jobs:', processedJobs.length);
+      
       setJobs(processedJobs);
-      setDrivers(driversData);
+      setDrivers(driversData || []);
     } catch (err) {
-      setError('Failed to load data: ' + err.message);
+      console.error('Error loading data:', err);
+      setError('Failed to load data: ' + (err.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
