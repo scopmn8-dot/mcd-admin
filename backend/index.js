@@ -418,38 +418,72 @@ app.get('/api/process-logs', (req, res) => {
   });
 });
 // Respect platform-provided PORT (e.g., Cloud Run) with fallback
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
+// Cloud Run typically provides PORT as string, ensure it's a number
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 
-// Health check endpoint
+// Validate port number
+if (isNaN(PORT) || PORT <= 0 || PORT > 65535) {
+  console.error(`❌ Invalid PORT value: ${process.env.PORT}. Using default 3001.`);
+  PORT = 3001;
+}
+
+console.log(`📡 PORT configuration: ${PORT} (source: ${process.env.PORT ? 'environment' : 'default'})`);
+
+// Health check endpoint - Make this super simple and fast
 app.get('/api/health', (req, res) => {
-  const diagnostics = {
+  try {
+    const diagnostics = {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: '1.0.4',
+      environment: process.env.NODE_ENV || 'development',
+      port: PORT,
+      credentials: {
+        source: process.env.GOOGLE_CLIENT_EMAIL ? 'environment_variables' : 'file',
+        clientEmail: process.env.GOOGLE_CLIENT_EMAIL || 'using_file',
+        privateKeyAvailable: !!process.env.GOOGLE_PRIVATE_KEY,
+        privateKeyLength: process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.length : 0,
+        privateKeyStart: process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.substring(0, 50) : 'using_file'
+      },
+      jwt: {
+        secretAvailable: !!process.env.JWT_SECRET,
+        secretLength: process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 0
+      },
+      rateLimiting: {
+        enabled: true,
+        apiLimit: API_RATE_LIMIT,
+        windowMs: RATE_LIMIT_WINDOW,
+        cacheTtlMs: CACHE_TTL,
+        currentCalls: apiCallCount,
+        resetTime: new Date(apiCallResetTime).toISOString()
+      }
+    };
+    
+    res.status(200).json(diagnostics);
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({ 
+      status: 'unhealthy', 
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Simplified health endpoint for Cloud Run
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+// Root endpoint for Cloud Run
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    message: 'MCD Admin Backend is running', 
     status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    version: '1.0.3',
-    environment: process.env.NODE_ENV || 'development',
-    credentials: {
-      source: process.env.GOOGLE_CLIENT_EMAIL ? 'environment_variables' : 'file',
-      clientEmail: process.env.GOOGLE_CLIENT_EMAIL || 'using_file',
-      privateKeyAvailable: !!process.env.GOOGLE_PRIVATE_KEY,
-      privateKeyLength: process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.length : 0,
-      privateKeyStart: process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.substring(0, 50) : 'using_file'
-    },
-    jwt: {
-      secretAvailable: !!process.env.JWT_SECRET,
-      secretLength: process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 0
-    },
-    rateLimiting: {
-      enabled: true,
-      apiLimit: API_RATE_LIMIT,
-      windowMs: RATE_LIMIT_WINDOW,
-      cacheTtlMs: CACHE_TTL,
-      currentCalls: apiCallCount,
-      resetTime: new Date(apiCallResetTime).toISOString()
-    }
-  };
-  
-  res.status(200).json(diagnostics);
+    version: '1.0.4',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Test Google Sheets connection endpoint
@@ -6279,31 +6313,67 @@ console.log('📋 Environment variables check:');
 console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
 console.log(`   PORT: ${process.env.PORT || 'undefined (will use 3001)'}`);
 console.log(`   GOOGLE_CLIENT_EMAIL: ${process.env.GOOGLE_CLIENT_EMAIL ? '✅ Set' : '❌ Not set'}`);
-console.log(`   GOOGLE_PRIVATE_KEY: ${process.env.GOOGLE_PRIVATE_KEY ? '✅ Set' : '❌ Not set'}`);
+console.log(`   GOOGLE_PRIVATE_KEY: ${process.env.GOOGLE_PRIVATE_KEY ? '✅ Set (length: ' + (process.env.GOOGLE_PRIVATE_KEY?.length || 0) + ')' : '❌ Not set'}`);
 console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? '✅ Set' : '❌ Not set'}`);
 console.log(`   EMAIL_USER: ${process.env.EMAIL_USER ? '✅ Set' : '❌ Not set'}`);
 console.log(`   EMAIL_PASSWORD: ${process.env.EMAIL_PASSWORD ? '✅ Set' : '❌ Not set'}`);
+
+// Log platform information
+console.log('🖥️  Platform information:');
+console.log(`   Node.js version: ${process.version}`);
+console.log(`   Platform: ${process.platform}`);
+console.log(`   Architecture: ${process.arch}`);
+console.log(`   Working directory: ${process.cwd()}`);
+
+// Test Google Sheets credentials early
+console.log('🔍 Testing Google credentials...');
+try {
+  if (credentials && credentials.client_email) {
+    console.log(`✅ Google credentials loaded for: ${credentials.client_email}`);
+  } else {
+    console.log('❌ Google credentials not properly loaded');
+  }
+} catch (credError) {
+  console.error('❌ Error checking Google credentials:', credError.message);
+}
 
 // Add global error handlers for uncaught exceptions
 process.on('uncaughtException', (error) => {
   console.error('🚨 UNCAUGHT EXCEPTION:', error);
   console.error('Stack trace:', error.stack);
-  process.exit(1);
+  // Give some time for logs to flush before exiting
+  setTimeout(() => process.exit(1), 1000);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('🚨 UNHANDLED PROMISE REJECTION at:', promise);
   console.error('Reason:', reason);
-  process.exit(1);
+  // Give some time for logs to flush before exiting
+  setTimeout(() => process.exit(1), 1000);
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+// Add timeout for startup
+const startupTimeout = setTimeout(() => {
+  console.error('🚨 STARTUP TIMEOUT: Server failed to start within 60 seconds');
+  process.exit(1);
+}, 60000);
+
+console.log('🚀 Attempting to start server...');
+
+const server = app.listen(PORT, '0.0.0.0', () => {
+  clearTimeout(startupTimeout);
   console.log(`🚀 Server is running on http://0.0.0.0:${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`⚡ PORT configured: ${PORT} (from ${process.env.PORT ? 'environment' : 'default'})`);
+  
+  // Test if server is actually listening
+  const address = server.address();
+  console.log(`📡 Server address info:`, address);
+  
   if (process.env.NODE_ENV === 'production') {
     console.log('📦 Serving React frontend from /frontend/build');
   }
+  
   // Enhanced health check status
   console.log('🔍 Health endpoints:');
   console.log(`   GET / - API info and health`);
@@ -6311,16 +6381,76 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`   GET /ping - Quick ping check`);
   console.log(`   GET /api/health - Detailed diagnostics`);
   
+  // Test health endpoint internally
+  setTimeout(() => {
+    console.log('🧪 Testing internal health check...');
+    const http = require('http');
+    const options = {
+      hostname: 'localhost',
+      port: PORT,
+      path: '/health',
+      method: 'GET',
+      timeout: 5000
+    };
+    
+    const req = http.request(options, (res) => {
+      console.log(`✅ Internal health check passed: ${res.statusCode}`);
+    });
+    
+    req.on('error', (err) => {
+      console.error('❌ Internal health check failed:', err.message);
+    });
+    
+    req.on('timeout', () => {
+      console.error('❌ Internal health check timed out');
+      req.destroy();
+    });
+    
+    req.end();
+  }, 2000);
+  
   // Temporarily disabled to avoid quota issues at startup - will be called on-demand
   // ensureProcessedSheetExists().catch(err => console.error('Startup sheet creation error:', err));
   // writeCombinedJobsSheet().catch(err => console.error('Startup combined sheet creation error:', err));
   console.log('📊 Rate limiting enabled: API quota-aware operations ready');
   console.log('🎯 Server startup complete - ready for requests');
-}).on('error', (error) => {
+  
+  // Send ready signal for Cloud Run
+  if (process.env.NODE_ENV === 'production') {
+    console.log('☁️ Cloud Run deployment - server ready');
+  }
+});
+
+server.on('error', (error) => {
+  clearTimeout(startupTimeout);
   console.error('🚨 SERVER STARTUP ERROR:', error);
-  console.error('Failed to start server on port:', PORT);
+  console.error('Error code:', error.code);
   console.error('Error details:', error.message);
+  
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use`);
+  } else if (error.code === 'EACCES') {
+    console.error(`❌ Permission denied for port ${PORT}`);
+  }
+  
   process.exit(1);
+});
+
+// Handle server shutdown gracefully
+process.on('SIGTERM', () => {
+  console.log('📴 Received SIGTERM, shutting down gracefully...');
+  server.close(() => {
+    console.log('✅ Server shut down successfully');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('📴 Received SIGINT, shutting down gracefully...');
+  server.close(() => {
+    console.log('✅ Server shut down successfully');
+    process.exit(0);
+  });
 });
 
 // Helper: write a Batch Plans sheet and append rows for a created batch
