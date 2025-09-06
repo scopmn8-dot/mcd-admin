@@ -103,13 +103,6 @@ const ManualDriverAssignment = () => {
         drivers: driversData.length
       });
 
-      console.log('Data loaded:', {
-        motorway: motorwayJobs.length,
-        atmoves: atmovesJobs.length,
-        private: privateJobs.length,
-        drivers: driversData.length
-      });
-
       // Combine all jobs and add source sheet info - ensure we're working with arrays
       const allJobs = [
         ...(motorwayJobs || []).map(job => ({ ...job, sourceSheet: 'motorway', sheetName: 'Motorway' })),

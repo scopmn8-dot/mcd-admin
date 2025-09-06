@@ -6383,31 +6383,18 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`   GET /api/health - Detailed diagnostics`);
   
   // Test health endpoint internally
-  setTimeout(() => {
+  setTimeout(async () => {
     console.log('🧪 Testing internal health check...');
-    const http = require('http');
-    const options = {
-      hostname: 'localhost',
-      port: PORT,
-      path: '/health',
-      method: 'GET',
-      timeout: 5000
-    };
-    
-    const req = http.request(options, (res) => {
-      console.log(`✅ Internal health check passed: ${res.statusCode}`);
-    });
-    
-    req.on('error', (err) => {
-      console.error('❌ Internal health check failed:', err.message);
-    });
-    
-    req.on('timeout', () => {
-      console.error('❌ Internal health check timed out');
-      req.destroy();
-    });
-    
-    req.end();
+    try {
+      const response = await fetch(`http://localhost:${PORT}/health`);
+      if (response.ok) {
+        console.log(`✅ Internal health check passed: ${response.status}`);
+      } else {
+        console.log(`⚠️ Internal health check warning: ${response.status}`);
+      }
+    } catch (err) {
+      console.log(`❌ Internal health check failed: ${err.message}`);
+    }
   }, 2000);
   
   // Temporarily disabled to avoid quota issues at startup - will be called on-demand
