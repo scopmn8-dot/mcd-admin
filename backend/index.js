@@ -1995,6 +1995,208 @@ app.post('/api/:sheet/update', async (req, res) => {
   }
 });
 
+// API to manually assign driver to specific job
+app.post('/api/jobs/assign-driver', authMiddleware, async (req, res) => {
+  try {
+    const { jobId, driverName, sourceSheet } = req.body;
+    
+    if (!jobId || !sourceSheet) {
+      return res.status(400).json({ error: 'jobId and sourceSheet are required' });
+    }
+
+    console.log(`🎯 Manual driver assignment: Job ${jobId} -> Driver ${driverName || 'Unassigned'}`);
+
+    // Get current data
+    const data = await getCachedData();
+    let sheetData = null;
+    let sheetName = '';
+
+    // Determine which sheet to update
+    switch (sourceSheet) {
+      case 'motorway':
+        sheetData = data.motorway;
+        sheetName = SHEETS.motorway.name;
+        break;
+      case 'atmoves':
+        sheetData = data.atmoves;
+        sheetName = SHEETS.atmoves.name;
+        break;
+      case 'privateCustomers':
+        sheetData = data.privateCustomers;
+        sheetName = SHEETS.privateCustomers.name;
+        break;
+      default:
+        return res.status(400).json({ error: 'Invalid sourceSheet' });
+    }
+
+    // Find the job
+    const jobIndex = sheetData.findIndex(job => job.job_id === jobId);
+    if (jobIndex === -1) {
+      return res.status(404).json({ error: `Job ${jobId} not found in ${sourceSheet}` });
+    }
+
+    const job = sheetData[jobIndex];
+    const previousDriver = job.selected_driver;
+    
+    // Update job with new driver assignment
+    job.selected_driver = driverName || '';
+    job.date_time_assigned = driverName ? new Date().toISOString() : '';
+    
+    // If assigning a driver (not unassigning), send email notifications
+    if (driverName && (!previousDriver || previousDriver === '')) {
+      console.log(`📧 Sending email notifications for manual assignment of job ${jobId} to ${driverName}`);
+      sendJobNotifications(job, driverName).catch(err => 
+        console.error('Email notification failed:', err.message)
+      );
+    }
+
+    // Get headers for the sheet
+    const headerRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${sheetName}!1:1`,
+    });
+    const headers = headerRes.data.values[0] || [];
+
+    // Build row data
+    const rowData = headers.map(header => job[header] || '');
+    const rowIndex = jobIndex + 2; // +2 for header row and 1-based indexing
+
+    // Update the sheet
+    await updateRow(sheetName, rowIndex, rowData);
+
+    // Invalidate cache
+    cache.timestamp = 0;
+
+    console.log(`✅ Manual assignment complete: Job ${jobId} assigned to ${driverName || 'Unassigned'}`);
+
+    res.json({
+      success: true,
+      message: `Job ${jobId} ${driverName ? `assigned to ${driverName}` : 'unassigned'}`,
+      jobId,
+      previousDriver,
+      newDriver: driverName || null,
+      assignmentTime: job.date_time_assigned
+    });
+
+  } catch (error) {
+    console.error('❌ Manual driver assignment error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API for batch driver assignment
+app.post('/api/jobs/batch-assign-driver', authMiddleware, async (req, res) => {
+  try {
+    const { jobIds, driverName } = req.body;
+    
+    if (!Array.isArray(jobIds) || jobIds.length === 0) {
+      return res.status(400).json({ error: 'jobIds array is required' });
+    }
+
+    console.log(`🎯 Batch driver assignment: ${jobIds.length} jobs -> Driver ${driverName || 'Unassigned'}`);
+
+    const results = [];
+    const errors = [];
+    let emailNotificationCount = 0;
+
+    // Get current data
+    const data = await getCachedData();
+    
+    // Process each job
+    for (const jobId of jobIds) {
+      try {
+        // Find which sheet contains this job
+        let job = null;
+        let sheetData = null;
+        let sheetName = '';
+        let sourceSheet = '';
+
+        if (data.motorway.some(j => j.job_id === jobId)) {
+          job = data.motorway.find(j => j.job_id === jobId);
+          sheetData = data.motorway;
+          sheetName = SHEETS.motorway.name;
+          sourceSheet = 'motorway';
+        } else if (data.atmoves.some(j => j.job_id === jobId)) {
+          job = data.atmoves.find(j => j.job_id === jobId);
+          sheetData = data.atmoves;
+          sheetName = SHEETS.atmoves.name;
+          sourceSheet = 'atmoves';
+        } else if (data.privateCustomers.some(j => j.job_id === jobId)) {
+          job = data.privateCustomers.find(j => j.job_id === jobId);
+          sheetData = data.privateCustomers;
+          sheetName = SHEETS.privateCustomers.name;
+          sourceSheet = 'privateCustomers';
+        }
+
+        if (!job) {
+          errors.push({ jobId, error: 'Job not found' });
+          continue;
+        }
+
+        const previousDriver = job.selected_driver;
+        
+        // Update job with new driver assignment
+        job.selected_driver = driverName || '';
+        job.date_time_assigned = driverName ? new Date().toISOString() : '';
+
+        // Send email notifications for new assignments (not reassignments)
+        if (driverName && (!previousDriver || previousDriver === '')) {
+          sendJobNotifications(job, driverName).catch(err => 
+            console.error(`Email notification failed for job ${jobId}:`, err.message)
+          );
+          emailNotificationCount++;
+        }
+
+        // Get headers and update the sheet
+        const headerRes = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: `${sheetName}!1:1`,
+        });
+        const headers = headerRes.data.values[0] || [];
+        const rowData = headers.map(header => job[header] || '');
+        const jobIndex = sheetData.findIndex(j => j.job_id === jobId);
+        const rowIndex = jobIndex + 2;
+
+        await updateRow(sheetName, rowIndex, rowData);
+
+        results.push({
+          jobId,
+          sourceSheet,
+          previousDriver,
+          newDriver: driverName || null,
+          assignmentTime: job.date_time_assigned
+        });
+
+      } catch (error) {
+        console.error(`❌ Failed to update job ${jobId}:`, error);
+        errors.push({ jobId, error: error.message });
+      }
+    }
+
+    // Invalidate cache
+    cache.timestamp = 0;
+
+    console.log(`✅ Batch assignment complete: ${results.length} successful, ${errors.length} errors`);
+    if (emailNotificationCount > 0) {
+      console.log(`📧 Sent ${emailNotificationCount} email notifications`);
+    }
+
+    res.json({
+      success: true,
+      message: `Batch assignment completed: ${results.length} successful, ${errors.length} errors`,
+      successCount: results.length,
+      errorCount: errors.length,
+      results,
+      errors,
+      emailNotificationsSent: emailNotificationCount
+    });
+
+  } catch (error) {
+    console.error('❌ Batch driver assignment error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Suggest clusters based on delivery/collection location and date
 app.get('/api/clusters/suggest', async (req, res) => {
   try {
