@@ -25,7 +25,15 @@ import {
   InputLabel,
   IconButton,
   Tooltip,
-  Stack
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Collapse
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -34,7 +42,9 @@ import {
   Warning as WarningIcon,
   CheckCircle as CheckIcon,
   Assignment as AssignmentIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  KeyboardArrowDown as ArrowDownIcon,
+  KeyboardArrowUp as ArrowUpIcon
 } from '@mui/icons-material';
 
 export default function DriverJobAssignments() {
@@ -46,6 +56,7 @@ export default function DriverJobAssignments() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [selectedNewDriver, setSelectedNewDriver] = useState('');
   const [reassigning, setReassigning] = useState(false);
+  const [expandedDriver, setExpandedDriver] = useState(null);
 
   useEffect(() => {
     fetchDriverAssignments();
@@ -262,6 +273,10 @@ export default function DriverJobAssignments() {
     return driver?.region || 'Unknown';
   };
 
+  const handleToggleExpand = (driverName) => {
+    setExpandedDriver(expandedDriver === driverName ? null : driverName);
+  };
+
   if (loading) {
     return (
       <Box sx={{ p: 3 }}>
@@ -323,140 +338,261 @@ export default function DriverJobAssignments() {
           No drivers have been assigned jobs yet. Use the "Assign Drivers" button in the main dashboard to start automatic assignments.
         </Alert>
       ) : (
-        <Grid container spacing={3}>
-          {driverData.map((driver, index) => (
-            <Grid item xs={12} key={driver.driverName}>
-              <Accordion defaultExpanded={index < 3}>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 2 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                      {driver.driverName}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      ({getDriverRegion(driver.driverName)})
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+        <TableContainer component={Paper} sx={{ mt: 2 }}>
+          <Table sx={{ minWidth: 650 }}>
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'grey.50' }}>
+                <TableCell sx={{ fontWeight: 600 }}>Driver</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600 }}>Region</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600 }}>Total Jobs</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600 }}>Active</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600 }}>Completed</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600 }}>Forward</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600 }}>Return</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600 }}>Issues</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600 }}>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {driverData.map((driver) => (
+                <React.Fragment key={driver.driverName}>
+                  <TableRow 
+                    sx={{ 
+                      '&:hover': { bgcolor: 'grey.50' },
+                      cursor: 'pointer',
+                      bgcolor: expandedDriver === driver.driverName ? 'primary.50' : 'inherit'
+                    }}
+                    onClick={() => handleToggleExpand(driver.driverName)}
+                  >
+                    <TableCell>
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <IconButton size="small">
+                          {expandedDriver === driver.driverName ? <ArrowUpIcon /> : <ArrowDownIcon />}
+                        </IconButton>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                          {driver.driverName}
+                        </Typography>
+                      </Stack>
+                    </TableCell>
+                    <TableCell align="center">
                       <Chip 
-                        label={`${driver.totalJobs} total`} 
-                        color="primary" 
-                        size="small" 
+                        label={getDriverRegion(driver.driverName)} 
+                        size="small"
+                        variant="outlined"
                       />
+                    </TableCell>
+                    <TableCell align="center">
                       <Chip 
-                        label={`${driver.activeJobs} active`} 
-                        color="warning" 
-                        size="small" 
+                        label={driver.totalJobs} 
+                        color="primary"
+                        size="small"
                       />
+                    </TableCell>
+                    <TableCell align="center">
                       <Chip 
-                        label={`${driver.forwardJobs} forward`} 
-                        color="info" 
-                        size="small" 
+                        label={driver.activeJobs} 
+                        color="warning"
+                        size="small"
                       />
+                    </TableCell>
+                    <TableCell align="center">
                       <Chip 
-                        label={`${driver.returnJobs} return`} 
-                        color="secondary" 
-                        size="small" 
+                        label={driver.completedJobs} 
+                        color="success"
+                        size="small"
                       />
-                      {driver.invalidAssignments > 0 && (
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip 
+                        label={driver.forwardJobs} 
+                        color="info"
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip 
+                        label={driver.returnJobs} 
+                        color="secondary"
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell align="center">
+                      {driver.invalidAssignments > 0 ? (
                         <Chip 
-                          label={`${driver.invalidAssignments} issues`} 
-                          color="error" 
+                          label={driver.invalidAssignments} 
+                          color="error"
                           size="small"
                           icon={<WarningIcon />}
                         />
+                      ) : (
+                        <Chip 
+                          label="0" 
+                          color="success"
+                          size="small"
+                          icon={<CheckIcon />}
+                        />
                       )}
-                    </Box>
-                  </Box>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <Grid container spacing={2}>
-                    {driver.jobs.map((job, jobIndex) => (
-                      <Grid item xs={12} sm={6} md={4} key={job.job_id}>
-                        <Card 
-                          sx={{ 
-                            height: '100%',
-                            border: hasIssues(job) ? '2px solid' : '1px solid',
-                            borderColor: hasIssues(job) ? 'error.main' : 'divider',
-                            position: 'relative'
-                          }}
-                        >
-                          <CardContent sx={{ pb: 1 }}>
-                            <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-                              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                                {job.job_id}
-                              </Typography>
-                              <Box sx={{ display: 'flex', gap: 0.5 }}>
-                                <Tooltip title="Reassign to different driver">
-                                  <IconButton 
-                                    size="small" 
-                                    onClick={() => handleReassignJob(job)}
-                                    disabled={reassigning}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Button
+                        size="small"
+                        startIcon={<RefreshIcon />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          fetchDriverAssignments();
+                        }}
+                      >
+                        Refresh
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                  
+                  <TableRow>
+                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={9}>
+                      <Collapse in={expandedDriver === driver.driverName} timeout="auto" unmountOnExit>
+                        <Box sx={{ margin: 2 }}>
+                          <Typography variant="h6" gutterBottom component="div" sx={{ fontWeight: 600 }}>
+                            Job Details for {driver.driverName}
+                          </Typography>
+                          
+                          <TableContainer>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                  <TableCell sx={{ fontWeight: 600 }}>Job ID</TableCell>
+                                  <TableCell sx={{ fontWeight: 600 }}>VRM</TableCell>
+                                  <TableCell sx={{ fontWeight: 600 }}>Source</TableCell>
+                                  <TableCell sx={{ fontWeight: 600 }}>Collection</TableCell>
+                                  <TableCell sx={{ fontWeight: 600 }}>Delivery</TableCell>
+                                  <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                                  <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
+                                  <TableCell sx={{ fontWeight: 600 }}>Sequence</TableCell>
+                                  <TableCell align="center" sx={{ fontWeight: 600 }}>Actions</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {driver.jobs.map((job) => (
+                                  <TableRow 
+                                    key={job.job_id}
+                                    sx={{ 
+                                      bgcolor: hasIssues(job) ? 'error.50' : 'inherit',
+                                      '&:hover': { bgcolor: hasIssues(job) ? 'error.100' : 'grey.50' }
+                                    }}
                                   >
-                                    <ReassignIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="Remove from driver">
-                                  <IconButton 
-                                    size="small" 
-                                    onClick={() => handleRemoveJobFromDriver(job)}
-                                    disabled={reassigning}
-                                    color="error"
-                                  >
-                                    <RemoveIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </Box>
-                            </Stack>
-                            
-                            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                              {job.VRM} • {job.source}
-                            </Typography>
-                            
-                            <Typography variant="caption" display="block" sx={{ mb: 0.5 }}>
-                              <strong>Collection:</strong> {job.collection_postcode || '❌ Missing'}
-                            </Typography>
-                            <Typography variant="caption" display="block" sx={{ mb: 1 }}>
-                              <strong>Delivery:</strong> {job.delivery_postcode || '❌ Missing'}
-                            </Typography>
-                            
-                            <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap', gap: 1 }}>
-                              <Chip 
-                                label={job.job_status || 'pending'} 
-                                color={getStatusColor(job.job_status)} 
-                                size="small" 
-                              />
-                              {job.forward_return_flag && (
-                                <Chip 
-                                  label={job.forward_return_flag} 
-                                  color={getFlagColor(job.forward_return_flag)} 
-                                  size="small" 
-                                />
-                              )}
-                              {job.driver_order_sequence && (
-                                <Chip 
-                                  label={`#${job.driver_order_sequence}`} 
-                                  variant="outlined" 
-                                  size="small" 
-                                />
-                              )}
-                            </Stack>
-
-                            {hasIssues(job) && (
-                              <Alert severity="warning" sx={{ mt: 1, py: 0.5 }}>
-                                <Typography variant="caption">
-                                  ⚠️ Missing postcode - violates assignment rules
-                                </Typography>
-                              </Alert>
-                            )}
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </AccordionDetails>
-              </Accordion>
-            </Grid>
-          ))}
-        </Grid>
+                                    <TableCell>
+                                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                        {job.job_id}
+                                      </Typography>
+                                      {hasIssues(job) && (
+                                        <Typography variant="caption" color="error" display="block">
+                                          ⚠️ Missing postcode
+                                        </Typography>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Typography variant="body2">
+                                        {job.VRM || 'N/A'}
+                                      </Typography>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Chip 
+                                        label={job.source} 
+                                        size="small" 
+                                        variant="outlined"
+                                      />
+                                    </TableCell>
+                                    <TableCell>
+                                      <Typography 
+                                        variant="body2" 
+                                        color={job.collection_postcode ? 'text.primary' : 'error'}
+                                      >
+                                        {job.collection_postcode || '❌ Missing'}
+                                      </Typography>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Typography 
+                                        variant="body2" 
+                                        color={job.delivery_postcode ? 'text.primary' : 'error'}
+                                      >
+                                        {job.delivery_postcode || '❌ Missing'}
+                                      </Typography>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Chip 
+                                        label={job.job_status || 'pending'} 
+                                        color={getStatusColor(job.job_status)} 
+                                        size="small"
+                                      />
+                                    </TableCell>
+                                    <TableCell>
+                                      {job.forward_return_flag ? (
+                                        <Chip 
+                                          label={job.forward_return_flag} 
+                                          color={getFlagColor(job.forward_return_flag)} 
+                                          size="small"
+                                        />
+                                      ) : (
+                                        <Typography variant="body2" color="text.secondary">
+                                          N/A
+                                        </Typography>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      {job.driver_order_sequence ? (
+                                        <Chip 
+                                          label={`#${job.driver_order_sequence}`} 
+                                          variant="outlined" 
+                                          size="small"
+                                        />
+                                      ) : (
+                                        <Typography variant="body2" color="text.secondary">
+                                          Not set
+                                        </Typography>
+                                      )}
+                                    </TableCell>
+                                    <TableCell align="center">
+                                      <Stack direction="row" spacing={0.5}>
+                                        <Tooltip title="Reassign to different driver">
+                                          <IconButton 
+                                            size="small" 
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleReassignJob(job);
+                                            }}
+                                            disabled={reassigning}
+                                          >
+                                            <ReassignIcon fontSize="small" />
+                                          </IconButton>
+                                        </Tooltip>
+                                        <Tooltip title="Remove from driver">
+                                          <IconButton 
+                                            size="small" 
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleRemoveJobFromDriver(job);
+                                            }}
+                                            disabled={reassigning}
+                                            color="error"
+                                          >
+                                            <RemoveIcon fontSize="small" />
+                                          </IconButton>
+                                        </Tooltip>
+                                      </Stack>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </Box>
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
+                </React.Fragment>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
       )}
 
       {/* Reassign Dialog */}
