@@ -60,6 +60,130 @@ Key Action Points:
 // ...existing code...
 // Place this block AFTER all imports and after 'const app = express();'
 import fetch from 'node-fetch';
+import nodemailer from 'nodemailer';
+
+// Email configuration
+const EMAIL_CONFIG = {
+  service: 'gmail', // or 'outlook', 'yahoo', etc.
+  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+  port: process.env.EMAIL_PORT || 587,
+  secure: false, // true for 465, false for other ports
+  auth: {
+    user: process.env.EMAIL_USER || '', // Your email address
+    pass: process.env.EMAIL_PASSWORD || '' // Your email password or app password
+  }
+};
+
+// Create email transporter
+const emailTransporter = nodemailer.createTransporter(EMAIL_CONFIG);
+
+// Email templates
+const EMAIL_TEMPLATES = {
+  jobAssigned: (job, driver) => ({
+    subject: `New Job Assignment: ${job.VRM || job.vrm || 'Vehicle'} - ${job.job_id || 'N/A'}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #2563eb;">New Job Assignment</h2>
+        <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3>Job Details:</h3>
+          <p><strong>Job ID:</strong> ${job.job_id || 'N/A'}</p>
+          <p><strong>VRM:</strong> ${job.VRM || job.vrm || 'N/A'}</p>
+          <p><strong>Make/Model:</strong> ${job.make || 'N/A'} ${job.model || 'N/A'}</p>
+          <p><strong>Collection:</strong> ${job.collection_postcode || job['Collection Postcode'] || 'N/A'}</p>
+          <p><strong>Delivery:</strong> ${job.delivery_postcode || job['Delivery Postcode'] || 'N/A'}</p>
+          <p><strong>Assigned Driver:</strong> ${driver}</p>
+        </div>
+        <p style="color: #64748b;">This is an automated notification from Miles Car Delivery.</p>
+      </div>
+    `
+  }),
+  
+  jobUpdate: (job, status) => ({
+    subject: `Job Update: ${job.VRM || job.vrm || 'Vehicle'} - ${status}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #059669;">Job Status Update</h2>
+        <div style="background-color: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3>Job Details:</h3>
+          <p><strong>Job ID:</strong> ${job.job_id || 'N/A'}</p>
+          <p><strong>VRM:</strong> ${job.VRM || job.vrm || 'N/A'}</p>
+          <p><strong>Status:</strong> ${status}</p>
+          <p><strong>Collection:</strong> ${job.collection_postcode || job['Collection Postcode'] || 'N/A'}</p>
+          <p><strong>Delivery:</strong> ${job.delivery_postcode || job['Delivery Postcode'] || 'N/A'}</p>
+        </div>
+        <p style="color: #64748b;">This is an automated notification from Miles Car Delivery.</p>
+      </div>
+    `
+  })
+};
+
+// Function to send email
+async function sendEmail(to, template, job, extra = {}) {
+  try {
+    if (!EMAIL_CONFIG.auth.user || !EMAIL_CONFIG.auth.pass) {
+      console.log('📧 Email not configured - skipping email notification');
+      return { success: false, reason: 'Email not configured' };
+    }
+
+    if (!to || !to.includes('@')) {
+      console.log('📧 Invalid email address - skipping email notification');
+      return { success: false, reason: 'Invalid email address' };
+    }
+
+    const emailContent = EMAIL_TEMPLATES[template](job, extra.driver || extra.status);
+    
+    const mailOptions = {
+      from: `"Miles Car Delivery" <${EMAIL_CONFIG.auth.user}>`,
+      to: to,
+      subject: emailContent.subject,
+      html: emailContent.html
+    };
+
+    const result = await emailTransporter.sendMail(mailOptions);
+    console.log(`📧 Email sent successfully to ${to}: ${emailContent.subject}`);
+    return { success: true, messageId: result.messageId };
+    
+  } catch (error) {
+    console.error('📧 Error sending email:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// Function to send notifications for job assignments
+async function sendJobNotifications(job, driver) {
+  const notifications = [];
+  
+  try {
+    // Email to collection contact
+    const collectionEmail = job.collection_contact_email || job['Collection Contact Email'] || job.collection_email;
+    if (collectionEmail) {
+      const result = await sendEmail(collectionEmail, 'jobAssigned', job, { driver });
+      notifications.push({ type: 'collection', email: collectionEmail, result });
+    }
+    
+    // Email to delivery contact  
+    const deliveryEmail = job.delivery_contact_email || job['Delivery Contact Email'] || job.delivery_email;
+    if (deliveryEmail) {
+      const result = await sendEmail(deliveryEmail, 'jobAssigned', job, { driver });
+      notifications.push({ type: 'delivery', email: deliveryEmail, result });
+    }
+    
+    // Email to driver (if driver email is available from drivers sheet)
+    const drivers = await fetchDriversSheet();
+    const driverData = drivers.find(d => d.Name === driver);
+    if (driverData && driverData.Email) {
+      const result = await sendEmail(driverData.Email, 'jobAssigned', job, { driver });
+      notifications.push({ type: 'driver', email: driverData.Email, result });
+    }
+    
+    console.log(`📧 Sent ${notifications.filter(n => n.result.success).length}/${notifications.length} job assignment notifications`);
+    return notifications;
+    
+  } catch (error) {
+    console.error('📧 Error in sendJobNotifications:', error.message);
+    return notifications;
+  }
+}
 
 // In-memory cache for postcode area lookups from API
 const postcodeApiCache = {};
@@ -1203,6 +1327,79 @@ app.post('/api/drivers/update-stats', authMiddleware, async (req, res) => {
   }
 });
 
+// API endpoint to send email notifications manually
+app.post('/api/jobs/:jobId/send-notifications', authMiddleware, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    // Find the job across all sheets
+    const data = await getCachedData();
+    const allJobs = [...data.motorway, ...data.atmoves, ...data.privateCustomers];
+    const job = allJobs.find(j => j.job_id === jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    const driver = job.selected_driver || job.driver;
+    if (!driver) {
+      return res.status(400).json({ error: 'No driver assigned to this job' });
+    }
+    
+    const notifications = await sendJobNotifications(job, driver);
+    
+    res.json({
+      success: true,
+      jobId,
+      driver,
+      notifications: notifications.map(n => ({
+        type: n.type,
+        email: n.email,
+        success: n.result.success,
+        error: n.result.error || null
+      }))
+    });
+    
+  } catch (e) {
+    console.error('Error sending job notifications:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// API endpoint to test email configuration
+app.post('/api/email/test', authMiddleware, async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ error: 'Valid email address required' });
+    }
+    
+    // Test job data
+    const testJob = {
+      job_id: 'TEST-001',
+      VRM: 'TEST123',
+      make: 'Test',
+      model: 'Vehicle',
+      collection_postcode: 'SW1A 1AA',
+      delivery_postcode: 'M1 1AA'
+    };
+    
+    const result = await sendEmail(email, 'jobAssigned', testJob, { driver: 'Test Driver' });
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Test email sent successfully' : 'Failed to send test email',
+      error: result.error || null,
+      emailConfigured: !!(EMAIL_CONFIG.auth.user && EMAIL_CONFIG.auth.pass)
+    });
+    
+  } catch (e) {
+    console.error('Error testing email:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Test endpoint to check drivers sheet with different names
 app.get('/api/test-drivers', authMiddleware, async (req, res) => {
   const potentialNames = ['Drivers', 'Driver', 'drivers', 'DRIVERS', 'Sheet1', 'Sheet2', 'Sheet3', 'Sheet4'];
@@ -1698,14 +1895,31 @@ async function writeCombinedJobsSheet() {
       await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
     }
 
-    // Write all data (replace) under the header
-    const allValues = [headers].concat(rows);
-    const lastRow = allValues.length;
-    const lastColLetter = colLetter(headers.length - 1);
-    const writeRange = `${sheetName}!A1:${lastColLetter}${Math.max(1, lastRow)}`;
-    console.log(`Writing ${rows.length} combined rows to '${sheetName}' (range ${writeRange})`);
-    console.log(`📊 Making API call for final write (${apiCallCount + 1}/${API_RATE_LIMIT})`);
-    await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: writeRange, valueInputOption: 'USER_ENTERED', resource: { values: allValues } });
+    // Clear existing data first (beyond headers) to ensure deleted jobs are removed
+    if (rows.length === 0) {
+      // If no data, just write headers
+      console.log(`📊 Making API call to clear sheet and write headers only (${apiCallCount + 1}/${API_RATE_LIMIT})`);
+      await sheets.spreadsheets.values.update({ 
+        spreadsheetId: SHEET_ID, 
+        range: `${sheetName}!A1:Z10000`, 
+        valueInputOption: 'USER_ENTERED', 
+        resource: { values: [headers] } 
+      });
+    } else {
+      // Write all data (replace entire sheet content) under the header
+      const allValues = [headers].concat(rows);
+      const lastRow = allValues.length;
+      const lastColLetter = colLetter(headers.length - 1);
+      const writeRange = `${sheetName}!A1:${lastColLetter}${Math.max(lastRow, 10000)}`; // Ensure we clear old data
+      console.log(`Writing ${rows.length} combined rows to '${sheetName}' (range ${writeRange})`);
+      console.log(`📊 Making API call for final write (${apiCallCount + 1}/${API_RATE_LIMIT})`);
+      await sheets.spreadsheets.values.update({ 
+        spreadsheetId: SHEET_ID, 
+        range: writeRange, 
+        valueInputOption: 'USER_ENTERED', 
+        resource: { values: allValues } 
+      });
+    }
     incrementApiCall();
     
     cache.timestamp = 0;
@@ -2521,9 +2735,18 @@ app.post('/api/assign-drivers-to-all', async (req, res) => {
       // Assign the best job to this driver (should always find one if jobs available)
       if (bestJobIndex >= 0) {
         const job = availableJobs[bestJobIndex];
+        const previousDriver = job.selected_driver;
         job.selected_driver = driver.name;
         job.date_time_assigned = new Date().toISOString();
         driverJobCount[driver.name]++;
+        
+        // Send email notifications for new assignments (not reassignments)
+        if (!previousDriver || previousDriver === '') {
+          console.log(`📧 Sending email notifications for job ${job.job_id} assigned to ${driver.name}`);
+          sendJobNotifications(job, driver.name).catch(err => 
+            console.error('Email notification failed:', err.message)
+          );
+        }
         
         // Set initial job properties with proper sequencing
         job.order_no = 1; // This will be the first job for the driver
@@ -2658,9 +2881,18 @@ app.post('/api/assign-drivers-to-all', async (req, res) => {
       
       // Update job with assigned driver and proper sequencing
       const assignedDriver = chosen ? chosen.dc.name : '';
+      const previousDriver = job.selected_driver;
       job.selected_driver = assignedDriver;
       if (assignedDriver) {
         job.date_time_assigned = new Date().toISOString();
+        
+        // Send email notifications for new assignments (not reassignments)
+        if (!previousDriver || previousDriver === '') {
+          console.log(`📧 Sending email notifications for job ${job.job_id} assigned to ${assignedDriver}`);
+          sendJobNotifications(job, assignedDriver).catch(err => 
+            console.error('Email notification failed:', err.message)
+          );
+        }
       }
       
       // Set job properties with proper order_no and status
