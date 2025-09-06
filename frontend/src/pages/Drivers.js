@@ -141,7 +141,6 @@ export default function Drivers() {
   const [error, setError] = useState('');
   const [redistributing, setRedistributing] = useState(false);
   const [redistributeMsg, setRedistributeMsg] = useState('');
-  const [debugInfo, setDebugInfo] = useState(null);
 
   useEffect(() => {
     fetchDrivers();
@@ -167,34 +166,6 @@ export default function Drivers() {
       setError(err.message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const testDriversAPI = async () => {
-    try {
-      setDebugInfo('Testing...');
-      
-      // Test 1: Check available sheets
-      const sheetsResponse = await apiFetch('/api/sheets');
-      const sheetsData = sheetsResponse.ok ? await sheetsResponse.json() : null;
-      
-      // Test 2: Test different driver sheet names
-      const testResponse = await apiFetch('/api/test-drivers');
-      const testData = testResponse.ok ? await testResponse.json() : null;
-      
-      // Test 3: Try drivers API again
-      const driversResponse = await apiFetch('/api/drivers');
-      const driversData = driversResponse.ok ? await driversResponse.json() : await driversResponse.text();
-      
-      setDebugInfo({
-        availableSheets: sheetsData,
-        testResults: testData,
-        driversResult: driversData,
-        driversSuccess: driversResponse.ok
-      });
-      
-    } catch (err) {
-      setDebugInfo({ error: err.message });
     }
   };
 
@@ -226,6 +197,10 @@ export default function Drivers() {
     activeDrivers: drivers.filter(d => d.availability?.toLowerCase() === 'available' || !d.availability).length,
     regionsCount: new Set(drivers.map(d => d.region?.toLowerCase()).filter(Boolean)).size,
     averageCapacity: drivers.length > 0 ? Math.round(drivers.reduce((sum, d) => sum + (parseInt(d.MaxPerDay) || 0), 0) / drivers.length) : 0,
+    totalActiveJobs: drivers.reduce((sum, d) => sum + (parseInt(d['Active Jobs']) || 0), 0),
+    totalCompletedJobs: drivers.reduce((sum, d) => sum + (parseInt(d['Completed Jobs']) || 0), 0),
+    totalPendingJobs: drivers.reduce((sum, d) => sum + (parseInt(d['Pending Jobs']) || 0), 0),
+    totalAllJobs: drivers.reduce((sum, d) => sum + (parseInt(d['Total Jobs']) || 0), 0),
   };
 
   return (
@@ -242,47 +217,6 @@ export default function Drivers() {
             </Typography>
           </Box>
           <Stack direction="row" spacing={2}>
-            <Tooltip title="Debug Drivers API" arrow>
-              <span>
-                <Button
-                  variant="outlined"
-                  startIcon={<AssessmentIcon />}
-                  onClick={testDriversAPI}
-                  sx={{
-                    borderRadius: 3,
-                    px: 3,
-                    py: 1.5,
-                    fontWeight: 600,
-                  }}
-                >
-                  Debug API
-                </Button>
-              </span>
-            </Tooltip>
-            <Tooltip title="Redistribute Jobs" arrow>
-              <span>
-                <Button
-                  variant="contained"
-                  startIcon={redistributing ? <CircularProgress size={20} /> : <AutoModeIcon />}
-                  onClick={handleRedistributeJobs}
-                  disabled={redistributing || loading}
-                  sx={{
-                    background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
-                    boxShadow: '0 4px 16px rgba(139, 92, 246, 0.3)',
-                    borderRadius: 3,
-                    px: 3,
-                    py: 1.5,
-                    fontWeight: 600,
-                    '&:hover': {
-                      background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
-                      boxShadow: '0 6px 20px rgba(139, 92, 246, 0.4)',
-                    }
-                  }}
-                >
-                  {redistributing ? 'Redistributing...' : 'Redistribute Jobs'}
-                </Button>
-              </span>
-            </Tooltip>
             <Tooltip title="Refresh Data" arrow>
               <span>
                 <IconButton
@@ -315,43 +249,6 @@ export default function Drivers() {
             {redistributeMsg}
           </Alert>
         )}
-
-        {/* Debug Information */}
-        {debugInfo && (
-          <Paper 
-            sx={{ 
-              p: 3, 
-              mb: 2, 
-              borderRadius: 3,
-              backgroundColor: 'background.paper',
-              border: '1px solid',
-              borderColor: 'divider'
-            }}
-          >
-            <Typography variant="h6" sx={{ mb: 2, fontWeight: 700 }}>
-              🔍 Debug Information
-            </Typography>
-            <pre style={{ 
-              fontSize: '12px', 
-              overflow: 'auto', 
-              maxHeight: '400px',
-              backgroundColor: theme.palette.mode === 'dark' ? '#1a1a1a' : '#f5f5f5',
-              padding: '16px',
-              borderRadius: '8px',
-              margin: 0
-            }}>
-              {JSON.stringify(debugInfo, null, 2)}
-            </pre>
-            <Button 
-              variant="outlined" 
-              size="small" 
-              onClick={() => setDebugInfo(null)}
-              sx={{ mt: 2 }}
-            >
-              Clear Debug Info
-            </Button>
-          </Paper>
-        )}
       </Box>
 
       {/* Stats Cards */}
@@ -371,7 +268,7 @@ export default function Drivers() {
             value={driverStats.activeDrivers}
             icon={<CheckCircleIcon />}
             color="#10b981"
-            subtitle={`${driverStats.totalDrivers > 0 ? Math.round((driverStats.activeDrivers / driverStats.totalDrivers) * 100) : 0}% active`}
+            subtitle={`${driverStats.totalDrivers > 0 ? Math.round((driverStats.activeDrivers / driverStats.totalDrivers) * 100) : 0}% available`}
           />
         </Grid>
         <Grid xs={12} sm={6} md={3}>
@@ -390,6 +287,46 @@ export default function Drivers() {
             icon={<DirectionsCarIcon />}
             color="#ec4899"
             subtitle="Jobs per driver"
+          />
+        </Grid>
+      </Grid>
+
+      {/* Job Statistics Cards */}
+      <Grid container spacing={3} columns={12} sx={{ mb: 4 }}>
+        <Grid xs={12} sm={6} md={3}>
+          <ModernStatCard
+            title="Active Jobs"
+            value={driverStats.totalActiveJobs}
+            icon={<SpeedIcon />}
+            color="#ef4444"
+            subtitle="Currently assigned"
+          />
+        </Grid>
+        <Grid xs={12} sm={6} md={3}>
+          <ModernStatCard
+            title="Pending Jobs"
+            value={driverStats.totalPendingJobs}
+            icon={<TrendingUpIcon />}
+            color="#f59e0b"
+            subtitle="Awaiting completion"
+          />
+        </Grid>
+        <Grid xs={12} sm={6} md={3}>
+          <ModernStatCard
+            title="Completed Jobs"
+            value={driverStats.totalCompletedJobs}
+            icon={<CheckCircleIcon />}
+            color="#10b981"
+            subtitle="Successfully finished"
+          />
+        </Grid>
+        <Grid xs={12} sm={6} md={3}>
+          <ModernStatCard
+            title="Total Jobs"
+            value={driverStats.totalAllJobs}
+            icon={<AssignmentIcon />}
+            color="#6366f1"
+            subtitle="All time assignments"
           />
         </Grid>
       </Grid>

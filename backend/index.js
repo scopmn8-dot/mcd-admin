@@ -897,6 +897,81 @@ async function batchFetchSheets() {
 }
 
 // Fetch Drivers sheet and look up region for each driver
+async function calculateDriverJobStats(drivers) {
+  try {
+    console.log('📊 Calculating real-time job statistics for drivers...');
+    
+    // Fetch all job data from the three job sheets
+    const jobData = await getCachedData();
+    const allJobs = [
+      ...jobData.motorway,
+      ...jobData.atmoves,
+      ...jobData.privateCustomers
+    ];
+    
+    console.log(`📋 Processing ${allJobs.length} total jobs across all sheets`);
+    
+    // Create a map to store job counts for each driver
+    const driverStats = {};
+    
+    // Initialize stats for all drivers
+    drivers.forEach(driver => {
+      const driverName = driver.Name || driver.name || '';
+      driverStats[driverName] = {
+        activeJobs: 0,
+        pendingJobs: 0,
+        completedJobs: 0,
+        totalJobs: 0
+      };
+    });
+    
+    // Count jobs for each driver
+    allJobs.forEach(job => {
+      const assignedDriver = job.assigned_driver || job.driver || job.Driver || job['Assigned Driver'] || '';
+      
+      if (assignedDriver && driverStats[assignedDriver]) {
+        driverStats[assignedDriver].totalJobs++;
+        
+        // Determine job status
+        const status = (job.status || job.Status || '').toLowerCase();
+        const isCompleted = status.includes('completed') || status.includes('done') || status.includes('finished');
+        const isPending = status.includes('pending') || status.includes('assigned') || status.includes('in progress');
+        
+        if (isCompleted) {
+          driverStats[assignedDriver].completedJobs++;
+        } else if (isPending || status === 'active') {
+          driverStats[assignedDriver].pendingJobs++;
+        } else if (assignedDriver && !isCompleted) {
+          // If driver is assigned but status is unclear, consider it active
+          driverStats[assignedDriver].activeJobs++;
+        }
+      }
+    });
+    
+    // Update driver objects with calculated stats
+    const enhancedDrivers = drivers.map(driver => {
+      const driverName = driver.Name || driver.name || '';
+      const stats = driverStats[driverName] || { activeJobs: 0, pendingJobs: 0, completedJobs: 0, totalJobs: 0 };
+      
+      return {
+        ...driver,
+        'Active Jobs': stats.activeJobs.toString(),
+        'Pending Jobs': stats.pendingJobs.toString(), 
+        'Completed Jobs': stats.completedJobs.toString(),
+        'Total Jobs': stats.totalJobs.toString()
+      };
+    });
+    
+    console.log(`✅ Enhanced ${enhancedDrivers.length} drivers with real-time job statistics`);
+    return enhancedDrivers;
+    
+  } catch (error) {
+    console.error('❌ Error calculating driver job stats:', error.message);
+    // Return drivers with original static values if calculation fails
+    return drivers;
+  }
+}
+
 async function fetchDriversSheet() {
   // Check rate limit before making API call
   if (!canMakeApiCall()) {
@@ -935,7 +1010,7 @@ async function fetchDriversSheet() {
     const postcodes = rows.slice(1).map(row => row[postcodeIdx] || "").filter(Boolean);
     await batchLookupRegions(postcodes);
     
-    const drivers = rows.slice(1).map(row => {
+    let drivers = rows.slice(1).map(row => {
       const obj = {};
       headers.forEach((h, i) => { obj[h] = row[i] || ""; });
       // Add region info if postcode exists
@@ -948,7 +1023,12 @@ async function fetchDriversSheet() {
       return obj;
     });
     
-    console.log(`✅ Processed ${drivers.length} drivers successfully`);
+    console.log(`📊 Base drivers data loaded: ${drivers.length} drivers`);
+    
+    // Calculate real-time job statistics for each driver
+    drivers = await calculateDriverJobStats(drivers);
+    
+    console.log(`✅ Processed ${drivers.length} drivers successfully with real-time job counts`);
     return drivers;
     
   } catch (error) {
