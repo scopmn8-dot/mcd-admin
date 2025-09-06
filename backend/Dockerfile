@@ -14,8 +14,8 @@ USER backend
 # Copy package files with correct ownership
 COPY --chown=backend:nodejs package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install dependencies using npm install instead of ci for better compatibility
+RUN npm install --production --no-audit --no-fund
 
 # Copy source code with correct ownership
 COPY --chown=backend:nodejs . .
