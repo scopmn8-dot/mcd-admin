@@ -141,6 +141,8 @@ export default function Drivers() {
   const [error, setError] = useState('');
   const [redistributing, setRedistributing] = useState(false);
   const [redistributeMsg, setRedistributeMsg] = useState('');
+  const [updating, setUpdating] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState('');
 
   useEffect(() => {
     fetchDrivers();
@@ -192,6 +194,29 @@ export default function Drivers() {
     }
   };
 
+  const handleUpdateStatsInSheets = async () => {
+    try {
+      setUpdating(true);
+      setUpdateMsg('');
+      
+      const response = await apiFetch('/api/drivers/update-stats', {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setUpdateMsg(`✅ Successfully updated job statistics for ${data.driversProcessed || 0} drivers in Google Sheets.`);
+        fetchDrivers(); // Refresh data
+      } else {
+        throw new Error('Failed to update driver statistics in Google Sheets');
+      }
+    } catch (e) {
+      setUpdateMsg(`❌ Error: ${e.message}`);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const driverStats = {
     totalDrivers: drivers.length,
     activeDrivers: drivers.filter(d => d.availability?.toLowerCase() === 'available' || !d.availability).length,
@@ -236,6 +261,26 @@ export default function Drivers() {
                 </IconButton>
               </span>
             </Tooltip>
+            <Tooltip title="Update Job Stats in Google Sheets" arrow>
+              <span>
+                <Button
+                  variant="contained"
+                  onClick={handleUpdateStatsInSheets}
+                  disabled={updating || loading}
+                  startIcon={updating ? <CircularProgress size={20} /> : <AssessmentIcon />}
+                  sx={{
+                    backgroundColor: '#10b981',
+                    '&:hover': {
+                      backgroundColor: '#059669',
+                    },
+                    fontWeight: 600,
+                    px: 3,
+                  }}
+                >
+                  {updating ? 'Updating...' : 'Sync to Sheets'}
+                </Button>
+              </span>
+            </Tooltip>
           </Stack>
         </Stack>
 
@@ -247,6 +292,16 @@ export default function Drivers() {
             onClose={() => setRedistributeMsg("")}
           >
             {redistributeMsg}
+          </Alert>
+        )}
+        
+        {updateMsg && (
+          <Alert 
+            severity={updateMsg.includes("✅") ? "success" : "error"} 
+            sx={{ mb: 2, borderRadius: 3 }}
+            onClose={() => setUpdateMsg("")}
+          >
+            {updateMsg}
           </Alert>
         )}
       </Box>

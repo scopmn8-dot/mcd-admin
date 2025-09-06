@@ -993,6 +993,87 @@ async function calculateDriverJobStats(drivers) {
   }
 }
 
+async function updateDriverJobStatsInSheet(drivers, headers) {
+  try {
+    console.log('📝 Updating driver job statistics in Google Sheets...');
+    
+    // Find the column indices for job statistics
+    const activeJobsIdx = headers.findIndex(h => h === 'Active Jobs' || h.toLowerCase().includes('active'));
+    const pendingJobsIdx = headers.findIndex(h => h === 'Pending Jobs' || h.toLowerCase().includes('pending'));
+    const completedJobsIdx = headers.findIndex(h => h === 'Completed Jobs' || h.toLowerCase().includes('completed'));
+    const totalJobsIdx = headers.findIndex(h => h === 'Total Jobs' || h.toLowerCase().includes('total'));
+    
+    console.log(`📊 Column indices - Active: ${activeJobsIdx}, Pending: ${pendingJobsIdx}, Completed: ${completedJobsIdx}, Total: ${totalJobsIdx}`);
+    
+    // Create batch update requests
+    const updates = [];
+    
+    drivers.forEach((driver, index) => {
+      const rowIndex = index + 2; // +2 because row 1 is headers and Google Sheets is 1-indexed
+      
+      // Update Active Jobs column
+      if (activeJobsIdx >= 0) {
+        updates.push({
+          range: `${SHEETS.drivers.name}!${String.fromCharCode(65 + activeJobsIdx)}${rowIndex}`,
+          values: [[driver['Active Jobs'] || '0']]
+        });
+      }
+      
+      // Update Pending Jobs column  
+      if (pendingJobsIdx >= 0) {
+        updates.push({
+          range: `${SHEETS.drivers.name}!${String.fromCharCode(65 + pendingJobsIdx)}${rowIndex}`,
+          values: [[driver['Pending Jobs'] || '0']]
+        });
+      }
+      
+      // Update Completed Jobs column
+      if (completedJobsIdx >= 0) {
+        updates.push({
+          range: `${SHEETS.drivers.name}!${String.fromCharCode(65 + completedJobsIdx)}${rowIndex}`,
+          values: [[driver['Completed Jobs'] || '0']]
+        });
+      }
+      
+      // Update Total Jobs column
+      if (totalJobsIdx >= 0) {
+        updates.push({
+          range: `${SHEETS.drivers.name}!${String.fromCharCode(65 + totalJobsIdx)}${rowIndex}`,
+          values: [[driver['Total Jobs'] || '0']]
+        });
+      }
+    });
+    
+    if (updates.length > 0) {
+      // Check rate limit before batch update
+      if (!canMakeApiCall()) {
+        const waitTime = RATE_LIMIT_WINDOW - (Date.now() - apiCallResetTime);
+        console.log(`⏳ Rate limit reached. Waiting ${Math.ceil(waitTime/1000)} seconds before updating sheets...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+      
+      incrementApiCall();
+      console.log(`📝 Batch updating ${updates.length} cells in Google Sheets (${apiCallCount}/${API_RATE_LIMIT} this minute)`);
+      
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: {
+          valueInputOption: 'RAW',
+          data: updates
+        }
+      });
+      
+      console.log(`✅ Successfully updated ${updates.length} job statistics in Google Sheets`);
+    } else {
+      console.log('⚠️ No job statistics columns found in Google Sheets to update');
+    }
+    
+  } catch (error) {
+    console.error('❌ Error updating driver job stats in Google Sheets:', error.message);
+    // Don't throw error - just log it so the API still returns data
+  }
+}
+
 async function fetchDriversSheet() {
   // Check rate limit before making API call
   if (!canMakeApiCall()) {
@@ -1063,6 +1144,9 @@ async function fetchDriversSheet() {
     // Calculate real-time job statistics for each driver
     drivers = await calculateDriverJobStats(drivers);
     
+    // Write the updated job statistics back to Google Sheets
+    await updateDriverJobStatsInSheet(drivers, headers);
+    
     console.log(`✅ Processed ${drivers.length} drivers successfully with real-time job counts`);
     return drivers;
     
@@ -1096,6 +1180,25 @@ app.get('/api/sheets', authMiddleware, async (req, res) => {
     res.json(sheetList);
   } catch (e) {
     console.error('❌ Error fetching sheet list:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// API to update driver job statistics in Google Sheets
+app.post('/api/drivers/update-stats', authMiddleware, async (req, res) => {
+  try {
+    console.log('🔄 Manual update of driver job statistics requested...');
+    
+    // Fetch current drivers data
+    const drivers = await fetchDriversSheet();
+    
+    res.json({ 
+      success: true, 
+      message: `Successfully updated job statistics for ${drivers.length} drivers in Google Sheets`,
+      driversProcessed: drivers.length
+    });
+  } catch (e) {
+    console.error('❌ Error updating driver job stats:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
