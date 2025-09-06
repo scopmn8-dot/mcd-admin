@@ -1034,14 +1034,28 @@ async function fetchDriversSheet() {
     let drivers = rows.slice(1).map(row => {
       const obj = {};
       headers.forEach((h, i) => { obj[h] = row[i] || ""; });
+      
+      // Standardize column names to match frontend expectations
+      const standardizedDriver = {
+        Name: obj.Name || obj.name || obj.Driver || obj['Driver Name'] || '',
+        Phone: obj.Phone || obj.phone || obj.mobile || obj.Mobile || '',
+        Email: obj.Email || obj.email || obj['Email Address'] || '',
+        postcode: obj.postcode || obj.Postcode || obj['Post Code'] || obj.PostCode || '',
+        availability: obj.availability || obj.Availability || obj.Status || obj.status || '',
+        MaxPerDay: obj.MaxPerDay || obj['Max Per Day'] || obj.capacity || obj.Capacity || '0',
+        // Region will be added below
+        // Job counts will be added by calculateDriverJobStats
+      };
+      
       // Add region info if postcode exists
       if (postcodeIdx !== -1 && row[postcodeIdx]) {
         const regionInfo = lookupRegion(row[postcodeIdx]) || postcodeApiCache[(row[postcodeIdx] || '').trim().toUpperCase()] || {};
-        obj.region = regionInfo.region || '';
+        standardizedDriver.region = regionInfo.region || '';
       } else {
-        obj.region = '';
+        standardizedDriver.region = '';
       }
-      return obj;
+      
+      return standardizedDriver;
     });
     
     console.log(`📊 Base drivers data loaded: ${drivers.length} drivers`);
