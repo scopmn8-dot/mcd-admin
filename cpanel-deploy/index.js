@@ -503,12 +503,15 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Root endpoint - API info
+// Root endpoint - API info and health check
 app.get('/', (req, res) => {
   res.json({
     name: 'MCD Admin Backend API',
     version: '1.0.3',
-    status: 'running',
+    status: 'healthy',
+    port: PORT,
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
     endpoints: {
       health: '/api/health',
       auth: {
@@ -521,9 +524,18 @@ app.get('/', (req, res) => {
         atmoves: 'GET /api/atmoves',
         privateCustomers: 'GET /api/private-customers'
       }
-    },
-    timestamp: new Date().toISOString()
+    }
   });
+});
+
+// Additional health check endpoint for load balancers
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+// Ping endpoint for quick status checks
+app.get('/ping', (req, res) => {
+  res.status(200).send('pong');
 });
 
 // Simple file-backed user store and auth endpoints (no DB)
@@ -6059,16 +6071,54 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+// Startup diagnostics
+console.log('🔧 Starting MCD Admin Backend...');
+console.log('📋 Environment variables check:');
+console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
+console.log(`   PORT: ${process.env.PORT || 'undefined (will use 3001)'}`);
+console.log(`   GOOGLE_CLIENT_EMAIL: ${process.env.GOOGLE_CLIENT_EMAIL ? '✅ Set' : '❌ Not set'}`);
+console.log(`   GOOGLE_PRIVATE_KEY: ${process.env.GOOGLE_PRIVATE_KEY ? '✅ Set' : '❌ Not set'}`);
+console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? '✅ Set' : '❌ Not set'}`);
+console.log(`   EMAIL_USER: ${process.env.EMAIL_USER ? '✅ Set' : '❌ Not set'}`);
+console.log(`   EMAIL_PASSWORD: ${process.env.EMAIL_PASSWORD ? '✅ Set' : '❌ Not set'}`);
+
+// Add global error handlers for uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('🚨 UNCAUGHT EXCEPTION:', error);
+  console.error('Stack trace:', error.stack);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🚨 UNHANDLED PROMISE REJECTION at:', promise);
+  console.error('Reason:', reason);
+  process.exit(1);
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server is running on http://0.0.0.0:${PORT}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`⚡ PORT configured: ${PORT} (from ${process.env.PORT ? 'environment' : 'default'})`);
   if (process.env.NODE_ENV === 'production') {
-    console.log('Serving React frontend from /frontend/build');
+    console.log('📦 Serving React frontend from /frontend/build');
   }
+  // Enhanced health check status
+  console.log('🔍 Health endpoints:');
+  console.log(`   GET / - API info and health`);
+  console.log(`   GET /health - Simple health check`);
+  console.log(`   GET /ping - Quick ping check`);
+  console.log(`   GET /api/health - Detailed diagnostics`);
+  
   // Temporarily disabled to avoid quota issues at startup - will be called on-demand
   // ensureProcessedSheetExists().catch(err => console.error('Startup sheet creation error:', err));
   // writeCombinedJobsSheet().catch(err => console.error('Startup combined sheet creation error:', err));
   console.log('📊 Rate limiting enabled: API quota-aware operations ready');
+  console.log('🎯 Server startup complete - ready for requests');
+}).on('error', (error) => {
+  console.error('🚨 SERVER STARTUP ERROR:', error);
+  console.error('Failed to start server on port:', PORT);
+  console.error('Error details:', error.message);
+  process.exit(1);
 });
 
 // Helper: write a Batch Plans sheet and append rows for a created batch
