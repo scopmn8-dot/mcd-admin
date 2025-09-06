@@ -113,7 +113,17 @@ const ManualDriverAssignment = () => {
       // Filter jobs that have job_id (processed jobs)
       const processedJobs = allJobs.filter(job => job.job_id && job.job_id.trim() !== '');
 
-      console.log('Processed jobs:', processedJobs.length);
+      console.log('📊 Manual Assignment Data Summary:', {
+        totalJobs: processedJobs.length,
+        assignedJobs: processedJobs.filter(job => job.selected_driver).length,
+        unassignedJobs: processedJobs.filter(job => !job.selected_driver).length,
+        driversCount: driversData.length,
+        firstFewJobs: processedJobs.slice(0, 3).map(job => ({
+          id: job.job_id,
+          driver: job.selected_driver,
+          source: job.sourceSheet
+        }))
+      });
       
       setJobs(processedJobs);
       setDrivers(driversData || []);
@@ -143,8 +153,10 @@ const ManualDriverAssignment = () => {
   };
 
   const handleSingleDriverChange = async (jobId, newDriver) => {
+    console.log('🔧 Attempting driver assignment:', { jobId, newDriver });
     try {
       setLoading(true);
+      setError('');
       
       // Find the job and its source sheet
       const job = jobs.find(j => j.job_id === jobId);
@@ -152,8 +164,10 @@ const ManualDriverAssignment = () => {
         throw new Error('Job not found');
       }
 
+      console.log('📋 Job details:', { job: job.job_id, sourceSheet: job.sourceSheet, currentDriver: job.selected_driver });
+
       // Call the new manual assignment API
-      await apiFetch('/api/jobs/assign-driver', {
+      const response = await apiFetch('/api/jobs/assign-driver', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -162,12 +176,20 @@ const ManualDriverAssignment = () => {
           sourceSheet: job.sourceSheet
         })
       });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(`Server error: ${response.status} - ${errorData}`);
+      }
+
+      console.log('✅ Driver assignment successful');
       
       // Refresh data
       await loadData();
       setEditingJob(null);
       setSuccess(`Driver ${newDriver ? `assigned to` : 'unassigned from'} job ${jobId}`);
     } catch (err) {
+      console.error('❌ Driver assignment failed:', err);
       setError('Failed to update driver assignment: ' + err.message);
     } finally {
       setLoading(false);
@@ -269,6 +291,14 @@ const ManualDriverAssignment = () => {
       {success && (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
           {success}
+        </Alert>
+      )}
+
+      {/* Debug Information */}
+      {process.env.NODE_ENV === 'development' && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Debug: Jobs loaded: {jobs.length}, Drivers: {drivers.length}, 
+          Token: {localStorage.getItem('token') ? 'Present' : 'Missing'}
         </Alert>
       )}
 
