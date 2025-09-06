@@ -43,19 +43,40 @@ export default function ProcessedJobsPage() {
   const fetchProcessed = async () => {
     setLoading(true);
     try {
-      const [jobsRes, driversRes] = await Promise.all([
-        apiFetch('/api/processed-jobs'),
+      // Fetch jobs from all sheets like other job management pages
+      const [motorwayRes, atmovesRes, privateRes, driversRes] = await Promise.all([
+        apiFetch('/api/motorway'),
+        apiFetch('/api/atmoves'),
+        apiFetch('/api/private-customers'),
         apiFetch('/api/drivers')
       ]);
       
-      if (jobsRes.ok) {
-        const j = await jobsRes.json();
-        if (j.success) {
-          setHeaders(j.headers || []);
-          setRows(j.rows || []);
-          setStats(j.stats || { total: 0, lastProcessedAt: null });
-        }
-      }
+      // Process job responses
+      const motorwayJobs = motorwayRes.ok ? await motorwayRes.json() : [];
+      const atmovesJobs = atmovesRes.ok ? await atmovesRes.json() : [];
+      const privateJobs = privateRes.ok ? await privateRes.json() : [];
+      
+      // Combine all jobs and add source sheet info
+      const allJobs = [
+        ...(motorwayJobs || []).map(job => ({ ...job, sourceSheet: 'motorway', sheetName: 'Motorway' })),
+        ...(atmovesJobs || []).map(job => ({ ...job, sourceSheet: 'atmoves', sheetName: 'AT Moves' })),
+        ...(privateJobs || []).map(job => ({ ...job, sourceSheet: 'privateCustomers', sheetName: 'Private Customers' }))
+      ];
+
+      // Filter jobs that have job_id (processed jobs)
+      const processedJobs = allJobs.filter(job => job.job_id && job.job_id.trim() !== '');
+      
+      // Create headers from job properties
+      const jobHeaders = processedJobs.length > 0 ? Object.keys(processedJobs[0]).filter(key => 
+        !['sourceSheet', 'sheetName'].includes(key)
+      ) : [];
+      
+      setHeaders(jobHeaders);
+      setRows(processedJobs);
+      setStats({ 
+        total: processedJobs.length, 
+        lastProcessedAt: new Date().toISOString()
+      });
       
       if (driversRes.ok) {
         const driversData = await driversRes.json();
@@ -63,6 +84,7 @@ export default function ProcessedJobsPage() {
       }
     } catch (e) {
       console.warn('Failed to fetch data', e);
+      setError('Failed to load jobs: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -89,15 +111,8 @@ export default function ProcessedJobsPage() {
     setError('');
     
     try {
-      // Determine source sheet based on job data
-      let sourceSheet = 'motorway'; // default
-      
-      // Try to detect source sheet from job data
-      if (selectedJob.dealer && selectedJob.dealer.includes('AT Moves')) {
-        sourceSheet = 'atmoves';
-      } else if (selectedJob.customer_type === 'Private' || selectedJob.job_type === 'Private') {
-        sourceSheet = 'privateCustomers';
-      }
+      // Use the sourceSheet property that was added when combining jobs
+      const sourceSheet = selectedJob.sourceSheet || 'motorway';
 
       const response = await apiFetch('/api/jobs/assign-driver', {
         method: 'POST',
@@ -220,6 +235,9 @@ export default function ProcessedJobsPage() {
             <Box sx={{ pt: 1 }}>
               <Typography variant="body2" color="textSecondary" gutterBottom>
                 Job ID: <strong>{selectedJob.job_id}</strong>
+              </Typography>
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                Source: <strong>{selectedJob.sheetName || selectedJob.sourceSheet}</strong>
               </Typography>
               <Typography variant="body2" color="textSecondary" gutterBottom>
                 VRM: <strong>{selectedJob.VRM || selectedJob.vrm || 'N/A'}</strong>
