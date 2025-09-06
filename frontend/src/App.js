@@ -7,7 +7,6 @@ import ProcessedJobs from "./pages/ProcessedJobs";
 import BatchPlans from "./pages/BatchPlans";
 import Users from "./pages/Users";
 import AIDataMapper from "./pages/AIDataMapper";
-import ManualDriverAssignment from "./components/ManualDriverAssignment";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import './styles/modern.css';
@@ -363,8 +362,7 @@ function App() {
     {
       section: 'Job Management', 
       items: [
-        { label: 'Manual Assignment', icon: <AssignmentIcon />, index: 11, description: 'Manual driver assignment and batch operations' },
-        { label: 'Processed Jobs', icon: <JobsIcon />, index: 3, description: 'View completed job history' },
+        { label: 'Processed Jobs', icon: <JobsIcon />, index: 3, description: 'View completed job history and manage driver assignments' },
         { label: 'Batch Plans', icon: <AssignmentIcon />, index: 4, description: 'Batch planning and execution' },
       ]
     },
@@ -587,7 +585,6 @@ function App() {
       case 4: return <BatchPlans />;
       case 8: return <AIDataMapper />;
       case 10: return <Users />;
-      case 11: return <ManualDriverAssignment />;
       case 7: // Logout
         handleLogout();
         return null;
