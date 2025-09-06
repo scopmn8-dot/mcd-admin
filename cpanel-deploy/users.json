@@ -2,6 +2,14 @@
   {
     "id": "USR-T7JRW4L1K",
     "username": "Sam Paul",
-    "passwordHash": "$2a$10$38NyBXZ1.GyCCKgI0G92XeXSv6RzwtnbgAFQsBS/j9vXE7Q0uaChK"
+    "email": "sam.paul@mcdplan.com",
+    "passwordHash": "$2a$10$38NyBXZ1.GyCCKgI0G92XeXSv6RzwtnbgAFQsBS/j9vXE7Q0uaChK",
+    "firstName": "Sam",
+    "lastName": "Paul",
+    "phone": "",
+    "company": "MCD Plan",
+    "role": "admin",
+    "createdAt": "2025-09-04T00:00:00.000Z",
+    "updatedAt": "2025-09-04T00:00:00.000Z"
   }
 ]
